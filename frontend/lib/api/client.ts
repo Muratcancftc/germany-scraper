@@ -180,6 +180,8 @@ export const getPersistedJobs = () => apiRequest<any[]>("/api/jobs");
 export const getPersistedCompanies = () => apiRequest<any[]>("/api/companies");
 export const getJobCompanies = (jobId: number) =>
   apiRequest<any[]>(`/api/scrape/jobs/${jobId}/companies`);
+export const deleteCompany = (id: number | string) =>
+  apiRequest<any>(`/api/companies/${id}`, { method: "DELETE" });
 
 export const login = (username: string, password: string) =>
   apiRequest<{ access_token: string; token_type: string }>("/api/auth/login", {

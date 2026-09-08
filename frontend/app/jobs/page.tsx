@@ -1,11 +1,29 @@
 "use client";
 
-import { useSyncExternalStore, useState } from "react";
+import { useSyncExternalStore, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { Building2, ArrowRight, FileSpreadsheet, FileText, Search, Mail, Phone, Globe, Loader2, Database } from "lucide-react";
+import {
+  Building2,
+  ArrowRight,
+  FileSpreadsheet,
+  FileText,
+  Search,
+  Mail,
+  Phone,
+  Globe,
+  Loader2,
+  Database,
+  Trash2,
+  FolderTree,
+} from "lucide-react";
 import { getJobs, subscribe, SavedJob } from "@/lib/jobStore";
-import { exportExcel, exportPdf, getPersistedCompanies } from "@/lib/api/client";
+import {
+  exportExcel,
+  exportPdf,
+  getPersistedCompanies,
+  deleteCompany,
+} from "@/lib/api/client";
 
 function statusBadge(status: string) {
   const cls =
@@ -17,7 +35,13 @@ function statusBadge(status: string) {
       ? "bg-amber-500/15 text-amber-300 ring-amber-400/20"
       : "bg-red-500/15 text-red-300 ring-red-400/20";
   const label =
-    status === "completed" ? "Abgeschlossen" : status === "running" ? "Läuft" : status === "cancelled" ? "Abgebrochen" : "Fehlgeschlagen";
+    status === "completed"
+      ? "Abgeschlossen"
+      : status === "running"
+      ? "Läuft"
+      : status === "cancelled"
+      ? "Abgebrochen"
+      : "Fehlgeschlagen";
   return (
     <span className={`badge ring-1 ring-inset ${cls}`}>
       {status === "running" && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -26,22 +50,159 @@ function statusBadge(status: string) {
   );
 }
 
+function CompaniesTable({
+  companies,
+  onDelete,
+  deleting,
+}: {
+  companies: any[];
+  onDelete?: (c: any) => void;
+  deleting?: (id: any) => boolean;
+}) {
+  return (
+    <div className="max-h-80 overflow-auto">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-[#0d0d14] text-left">
+          <tr className="text-xs uppercase tracking-wide text-slate-500">
+            <th className="px-5 py-3 font-semibold">Firma</th>
+            <th className="px-3 py-3 font-semibold">Telefon</th>
+            <th className="px-3 py-3 font-semibold">E-Mail</th>
+            <th className="px-3 py-3 font-semibold">Adresse</th>
+            <th className="px-3 py-3 font-semibold">Website</th>
+            <th className="px-5 py-3 font-semibold text-right">
+              {onDelete ? "Aktion" : ""}
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/[0.05]">
+          {companies.length === 0 && (
+            <tr>
+              <td colSpan={6} className="py-8 text-center text-slate-500">
+                Keine Firmen gefunden
+              </td>
+            </tr>
+          )}
+          {companies.map((c, i) => (
+            <tr key={i} className="transition-colors hover:bg-white/[0.03]">
+              <td className="px-5 py-3 font-medium text-white">{c.name || "-"}</td>
+              <td className="px-3 py-3 text-slate-300">
+                {c.phone ? (
+                  <span className="flex items-center gap-1.5">
+                    <Phone className="h-3 w-3 text-slate-500" />
+                    {c.phone}
+                  </span>
+                ) : (
+                  <span className="text-slate-600">—</span>
+                )}
+              </td>
+              <td className="px-3 py-3 text-slate-300">
+                {c.email ? (
+                  <a
+                    href={`mailto:${c.email}`}
+                    className="flex items-center gap-1.5 text-indigo-300 hover:underline"
+                  >
+                    <Mail className="h-3 w-3 text-slate-500" />
+                    {c.email}
+                  </a>
+                ) : (
+                  <span className="text-slate-600">—</span>
+                )}
+              </td>
+              <td className="px-3 py-3 text-slate-300">
+                {[c.street, c.house_number, c.postal_code, c.city]
+                  .filter(Boolean)
+                  .join(" ") || <span className="text-slate-600">—</span>}
+              </td>
+              <td className="px-3 py-3">
+                {c.website ? (
+                  <a
+                    href={c.website}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-300 hover:underline"
+                  >
+                    {c.website.replace(/^https?:\/\//, "")}
+                  </a>
+                ) : (
+                  <span className="text-slate-600">—</span>
+                )}
+              </td>
+              <td className="px-5 py-3 text-right">
+                {onDelete && (
+                  <button
+                    onClick={() => onDelete(c)}
+                    disabled={deleting ? deleting(c.id) : false}
+                    className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+                    title="Löschen"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function JobsPage() {
   const jobs = useSyncExternalStore(subscribe, getJobs);
   const [query, setQuery] = useState("");
   const [exporting, setExporting] = useState<null | { type: "excel" | "pdf"; jobId: number }>(null);
+  const [deletingIds, setDeletingIds] = useState<Set<any>>(new Set());
 
-  const { data: persisted = [] as any[], isLoading: persistedLoading } = useQuery({
+  const {
+    data: persisted = [] as any[],
+    refetch: refetchPersisted,
+  } = useQuery({
     queryKey: ["persisted-companies"],
     queryFn: getPersistedCompanies,
     retry: 1,
   });
+
+  // Group persisted companies by category.
+  const grouped = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const c of persisted) {
+      const cat = (c.category || "Ohne Kategorie") as string;
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(c);
+    }
+    // Sort groups by name, empty label last.
+    return Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === "Ohne Kategorie") return 1;
+      if (b[0] === "Ohne Kategorie") return -1;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [persisted]);
+
+  const persistedAll = persisted;
 
   const filtered = query
     ? jobs.filter((j) =>
         j.companies.some((c) => (c.name || "").toLowerCase().includes(query.toLowerCase()))
       )
     : jobs;
+
+  const handleDelete = async (c: any) => {
+    if (!c?.id) return;
+    if (!window.confirm(`"${c.name}" kalıcı olarak silinsin mi?`)) return;
+    setDeletingIds((prev) => new Set(prev).add(c.id));
+    try {
+      await deleteCompany(c.id);
+      await refetchPersisted();
+    } catch {
+      alert("Silme başarısız");
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(c.id);
+        return next;
+      });
+    }
+  };
 
   const handleExport = async (job: SavedJob, type: "excel" | "pdf") => {
     setExporting({ type, jobId: job.jobId });
@@ -96,15 +257,17 @@ export default function JobsPage() {
         <div className="space-y-6">
           {persisted.length > 0 && (
             <section className="card overflow-hidden">
-              <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 ring-1 ring-inset ring-emerald-400/20">
                     <Database className="h-4 w-4 text-emerald-300" />
                   </div>
                   <div>
-                    <h2 className="text-base font-semibold text-white">Gespeicherte Firmen (Supabase)</h2>
+                    <h2 className="text-base font-semibold text-white">
+                      Gespeicherte Firmen (Supabase)
+                    </h2>
                     <p className="text-xs text-slate-500">
-                      Kalıcı olarak kayıtlı, tüm job'ların sonuçları · {persisted.length} Firmen
+                      Kalıcı olarak kayıtlı · {persisted.length} Firmen
                     </p>
                   </div>
                 </div>
@@ -112,7 +275,7 @@ export default function JobsPage() {
                   <button
                     onClick={async () => {
                       try {
-                        await exportExcel(persisted as any);
+                        await exportExcel(persistedAll as any);
                       } catch {
                         alert("Export fehlgeschlagen");
                       }
@@ -125,7 +288,7 @@ export default function JobsPage() {
                   <button
                     onClick={async () => {
                       try {
-                        await exportPdf(persisted as any);
+                        await exportPdf(persistedAll as any);
                       } catch {
                         alert("Export fehlgeschlagen");
                       }
@@ -137,59 +300,29 @@ export default function JobsPage() {
                   </button>
                 </div>
               </div>
-              <div className="max-h-80 overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-[#0d0d14] text-left">
-                    <tr className="text-xs uppercase tracking-wide text-slate-500">
-                      <th className="px-5 py-3 font-semibold">Firma</th>
-                      <th className="px-3 py-3 font-semibold">Telefon</th>
-                      <th className="px-3 py-3 font-semibold">E-Mail</th>
-                      <th className="px-3 py-3 font-semibold">Adresse</th>
-                      <th className="px-5 py-3 font-semibold">Website</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/[0.05]">
-                    {persisted.map((c, i) => (
-                      <tr key={i} className="transition-colors hover:bg-emerald-500/[0.04]">
-                        <td className="px-5 py-3 font-medium text-white">{c.name || "-"}</td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {c.phone ? (
-                            <span className="flex items-center gap-1.5">
-                              <Phone className="h-3 w-3 text-slate-500" />
-                              {c.phone}
-                            </span>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {c.email ? (
-                            <a href={`mailto:${c.email}`} className="text-indigo-300 hover:underline">
-                              {c.email}
-                            </a>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {[c.street, c.house_number, c.postal_code, c.city].filter(Boolean).join(" ") || <span className="text-slate-600">—</span>}
-                        </td>
-                        <td className="px-5 py-3">
-                          {c.website ? (
-                            <a href={c.website} target="_blank" rel="noreferrer" className="text-indigo-300 hover:underline">
-                              {c.website.replace(/^https?:\/\//, "")}
-                            </a>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+              {/* Grouped by category */}
+              <div className="divide-y divide-white/[0.05]">
+                {grouped.map(([category, companies]) => (
+                  <div key={category}>
+                    <div className="flex items-center gap-2 bg-white/[0.02] px-5 py-3">
+                      <FolderTree className="h-4 w-4 text-violet-400" />
+                      <h3 className="text-sm font-semibold text-white">{category}</h3>
+                      <span className="badge bg-white/[0.06] text-slate-300">
+                        {companies.length}
+                      </span>
+                    </div>
+                    <CompaniesTable
+                      companies={companies}
+                      onDelete={handleDelete}
+                      deleting={(id) => deletingIds.has(id)}
+                    />
+                  </div>
+                ))}
               </div>
             </section>
           )}
+
           {filtered.map((job) => (
             <section key={job.jobId} className="card overflow-hidden">
               {/* Job header */}
@@ -201,8 +334,7 @@ export default function JobsPage() {
                   <div>
                     <h2 className="text-base font-semibold text-white">Job #{job.jobId}</h2>
                     <p className="text-xs text-slate-500">
-                      {new Date(job.startedAt).toLocaleString("de-DE")} ·{" "}
-                      {job.companies.length} Firmen
+                      {new Date(job.startedAt).toLocaleString("de-DE")} · {job.companies.length} Firmen
                     </p>
                   </div>
                 </div>
@@ -250,7 +382,10 @@ export default function JobsPage() {
                   ["Fehler", job.counts.failed],
                   ["Gesamt", job.companies.length],
                 ].map(([label, val]) => (
-                  <div key={String(label)} className="rounded-xl bg-white/[0.03] px-4 py-3 ring-1 ring-inset ring-white/[0.06]">
+                  <div
+                    key={String(label)}
+                    className="rounded-xl bg-white/[0.03] px-4 py-3 ring-1 ring-inset ring-white/[0.06]"
+                  >
                     <p className="text-xs text-slate-400">{label}</p>
                     <p className="text-xl font-bold text-white">{val}</p>
                   </div>
@@ -258,66 +393,7 @@ export default function JobsPage() {
               </div>
 
               {/* Companies table */}
-              <div className="max-h-[30rem] overflow-auto border-t border-white/[0.06]">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-[#0d0d14] text-left">
-                    <tr className="text-xs uppercase tracking-wide text-slate-500">
-                      <th className="px-5 py-3 font-semibold">Firma</th>
-                      <th className="px-3 py-3 font-semibold">Telefon</th>
-                      <th className="px-3 py-3 font-semibold">E-Mail</th>
-                      <th className="px-3 py-3 font-semibold">Adresse</th>
-                      <th className="px-5 py-3 font-semibold">Website</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/[0.05]">
-                    {job.companies.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="py-8 text-center text-slate-500">
-                          Keine Firmen gefunden
-                        </td>
-                      </tr>
-                    )}
-                    {job.companies.map((c, i) => (
-                      <tr key={i} className="transition-colors hover:bg-indigo-500/[0.04]">
-                        <td className="px-5 py-3 font-medium text-white">{c.name || "-"}</td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {c.phone ? (
-                            <span className="flex items-center gap-1.5">
-                              <Phone className="h-3 w-3 text-slate-500" />
-                              {c.phone}
-                            </span>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {c.email ? (
-                            <a href={`mailto:${c.email}`} className="flex items-center gap-1.5 text-indigo-300 hover:underline">
-                              <Mail className="h-3 w-3 text-slate-500" />
-                              {c.email}
-                            </a>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-slate-300">
-                          {[c.street, c.house_number, c.postal_code, c.city].filter(Boolean).join(" ") || <span className="text-slate-600">—</span>}
-                        </td>
-                        <td className="px-5 py-3">
-                          {c.website ? (
-                            <a href={c.website} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-indigo-300 hover:underline">
-                              <Globe className="h-3 w-3 text-slate-500" />
-                              {c.website.replace(/^https?:\/\//, "")}
-                            </a>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <CompaniesTable companies={job.companies} />
             </section>
           ))}
         </div>

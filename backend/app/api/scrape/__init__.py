@@ -134,6 +134,17 @@ async def get_companies(_: dict = Depends(require_auth)):
     return await supabase_store.list_companies()
 
 
+@router.delete("/companies/{company_id}")
+async def delete_company(company_id: int, _: dict = Depends(require_auth)):
+    """Delete a persisted company (and its job links)."""
+    if not supabase_store.enabled():
+        raise HTTPException(404, "Persistence not configured")
+    ok = await supabase_store.delete_company(company_id)
+    if not ok:
+        raise HTTPException(404, "Company not found")
+    return {"status": "deleted", "id": company_id}
+
+
 @router.get("/jobs", response_model=list)
 async def get_persisted_jobs(_: dict = Depends(require_auth)):
     """Persisted job history (survives reloads)."""

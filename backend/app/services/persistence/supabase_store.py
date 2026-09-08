@@ -277,5 +277,23 @@ class SupabaseStore:
             logger.warning("Supabase companies_for_job failed", error=str(exc))
             return []
 
+    async def delete_company(self, company_id) -> bool:
+        """Delete a company by id. Returns True if a row was deleted."""
+        if company_id is None:
+            return False
+        pool = await _get_pool()
+        if pool is None:
+            return False
+        try:
+            async with pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM companies WHERE id = $1", company_id
+                )
+            # asyncpg returns a status string like "DELETE 1"
+            return "DELETE 1" in str(result)
+        except Exception as exc:
+            logger.warning("Supabase delete_company failed", error=str(exc))
+            return False
+
 
 supabase_store = SupabaseStore()
