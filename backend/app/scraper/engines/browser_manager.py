@@ -2,33 +2,35 @@
 
 On Vercel Functions the filesystem is read-only except `/tmp`. Camoufox stores
 its browser in a user cache dir (`XDG_CACHE_HOME/camoufox`). We point
-`XDG_CACHE_HOME` at a writable temp dir and, on first use, copy the browser from
-the bundled read-only location (downloaded at build time via `camoufox fetch`)
-into `/tmp` so the browser can run.
+`XDG_CACHE_HOME` directly at the bundled read-only cache directory
+(`.camoufox_cache`, created by the build-time `camoufox fetch`) so the browser
+is *read* from the bundle and nothing needs to be copied to /tmp (the browser
+bundle is ~600 MB and would not fit in /tmp).
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
-import shutil
 from pathlib import Path
 
-# Must be set before importing camoufox internals so the data dir resolves to /tmp.
-if os.environ.get("VERCEL"):
-    _bundle_cache = os.path.join(os.getcwd(), ".camoufox_cache")
-    os.environ.setdefault("XDG_CACHE_HOME", "/tmp/camoufox")
-    _cache_root = Path(os.environ["XDG_CACHE_HOME"])
-    if not (_cache_root / "camoufox").exists() and Path(_bundle_cache).exists():
-        try:
-            shutil.copytree(_bundle_cache, _cache_root, dirs_exist_ok=True)
-        except Exception:
-            pass
+# Must be set before importing camoufox internals so the data dir resolves to the
+# bundled cache. On Vercel the bundle lives next to the project (read-only).
+_IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+if _IS_SERVERLESS:
+    _bundle_candidates = [
+        Path(os.getcwd()) / ".camoufox_cache",
+        Path("/var/task/.camoufox_cache"),
+        Path(__file__).resolve().parent.parent.parent.parent / ".camoufox_cache",
+    ]
+    _bundle_cache = next((p for p in _bundle_candidates if (p / "camoufox").exists()), None)
+    if _bundle_cache is not None:
+        os.environ["XDG_CACHE_HOME"] = str(_bundle_cache)
 
-from camoufox.async_api import AsyncCamoufox
+from camoufox.async_api import AsyncCamoufox  # noqa: E402
 
-from app.core.config import settings
-from app.core.logging.logger import logger
+from app.core.config import settings  # noqa: E402
+from app.core.logging.logger import logger  # noqa: E402
 
 
 class BrowserManager:
@@ -48,7 +50,7 @@ class BrowserManager:
                 self._session = AsyncCamoufox(
                     headless=settings.CAMOUFOX_HEADLESS,
                     humanize=settings.CAMOUFOX_HUMANIZE,
-                    os="linux" if os.environ.get("VERCEL") else "windows",
+                    os="linux" if _IS_SERVERLESS else "windows",
                 )
                 self._browser = await self._session.__aenter__()
 

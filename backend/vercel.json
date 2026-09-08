@@ -4,6 +4,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 1800,
+      "includeFiles": ".camoufox_cache/**",
       "excludeFiles": "{tests/**,**/test_*.py,.pytest_cache/**,.ruff_cache/**}"
     }
   }

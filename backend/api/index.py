@@ -13,3 +13,5 @@ import os
 # Vercel sets this in production. Browser data dir must be writable -> /tmp.
 os.environ.setdefault("VERCEL", "1" if os.environ.get("VERCEL_ENV") else "")
 
+from app.main import app  # noqa: E402,F401
+
