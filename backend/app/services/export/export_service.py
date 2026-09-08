@@ -1,35 +1,23 @@
-"""Export companies of a job to Excel (.xlsx) and PDF (German characters safe).
+"""Stateless export of company records to Excel (.xlsx) and PDF.
 
-Inputs are plain dicts of company records plus the job snapshot — no database
-models are involved. Companies are written exactly once (the job's result list
-is already deduplicated).
+Companies come in via the request body (the frontend holds the live results
+because Vercel Functions are stateless). Export is a single request/response —
+the file bytes are returned directly, nothing is written to disk.
+
+- Excel: openpyxl (pure Python)
+- PDF:   ReportLab (pure Python, no system libs — works on Vercel)
 """
-
-# ruff: noqa: E501 (long HTML/CSS template lines in string literals)
 
 from __future__ import annotations
 
-import os
-import tempfile
-from datetime import datetime
+from io import BytesIO
 
-from fastapi import HTTPException
-from fastapi.responses import FileResponse
-from jinja2 import Template
+from fastapi.responses import StreamingResponse
 
-from app.core.config import settings
 from app.core.logging.logger import logger
 
 
 class ExportService:
-    def __init__(self):
-        base = os.path.abspath(settings.EXPORT_DIR)
-        if os.access(base, os.W_OK):
-            self.export_dir = base
-        else:
-            self.export_dir = os.path.join(tempfile.gettempdir(), "scraper_exports")
-        os.makedirs(self.export_dir, exist_ok=True)
-
     def _to_dicts(self, companies: list[dict]) -> list[dict]:
         return [
             {
@@ -48,11 +36,8 @@ class ExportService:
             for c in companies
         ]
 
-    def _url(self, filename: str) -> str:
-        return f"/api/exports/{filename}"
-
     # --- Excel ----------------------------------------------------------
-    def export_excel(self, job_id: int, companies: list[dict]) -> str:
+    def export_excel(self, companies: list[dict]) -> StreamingResponse:
         import openpyxl
         from openpyxl.styles import Alignment, Font, PatternFill
         from openpyxl.utils import get_column_letter
@@ -63,7 +48,7 @@ class ExportService:
 
         headers = [
             "Firma", "Kategorie", "Telefon", "E-Mail", "Adresse", "Hausnummer",
-            "PLZ", "Stadt", "Bundesland", "Website", "Quelle", "Quelle URL",
+            "PLZ", "Stadt", "Bundesland", "Website", "Quelle",
         ]
         header_fill = PatternFill(start_color="3b82f6", end_color="3b82f6", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
@@ -87,87 +72,105 @@ class ExportService:
             ws.cell(row=idx, column=9, value=row["state"])
             ws.cell(row=idx, column=10, value=row["website"])
             ws.cell(row=idx, column=11, value=row["source"])
-            ws.cell(row=idx, column=12, value=row["source_url"])
 
-        widths = [40, 26, 18, 28, 30, 14, 12, 20, 20, 40, 18, 40]
+        widths = [40, 26, 18, 28, 30, 14, 12, 20, 20, 40, 18]
         for i, w in enumerate(widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = w
 
-        filename = f"job_{job_id}_{datetime.utcnow():%Y%m%d_%H%M%S}.xlsx"
-        path = os.path.join(self.export_dir, filename)
-        wb.save(path)
-        logger.info("Excel export done", job_id=job_id, count=len(companies))
-        return self._url(filename)
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        logger.info("Excel export done", count=len(companies))
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=scraping_ergebnisse.xlsx"},
+        )
 
     # --- PDF ------------------------------------------------------------
-    def export_pdf(self, job_id: int, companies: list[dict], job: dict | None = None) -> str:
-        from weasyprint import HTML
-
-        template = Template(_PDF_TEMPLATE)
-        html = template.render(
-            date=datetime.utcnow().strftime("%d.%m.%Y %H:%M"),
-            count=len(companies),
-            cities=job.get("city_count", 0) if job else 0,
-            categories=job.get("category_count", 0) if job else 0,
-            companies=self._to_dicts(companies),
+    def export_pdf(self, companies: list[dict]) -> StreamingResponse:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
         )
-        filename = f"job_{job_id}_{datetime.utcnow():%Y%m%d_%H%M%S}.pdf"
-        path = os.path.join(self.export_dir, filename)
-        HTML(string=html).write_pdf(path)
-        logger.info("PDF export done", job_id=job_id, count=len(companies))
-        return self._url(filename)
 
-    # --- serving --------------------------------------------------------
-    def serve(self, filename: str) -> FileResponse:
-        path = os.path.join(self.export_dir, os.path.basename(filename))
-        if not os.path.exists(path):
-            raise HTTPException(404, "Export not found")
-        return FileResponse(path, filename=filename)
+        buf = BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=landscape(A4),
+            leftMargin=12 * mm,
+            rightMargin=12 * mm,
+            topMargin=12 * mm,
+            bottomMargin=12 * mm,
+        )
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "TitleDE", parent=styles["Title"], fontSize=18, textColor=colors.HexColor("#1e3a8a")
+        )
+        meta_style = ParagraphStyle(
+            "MetaDE", parent=styles["Normal"], fontSize=10, textColor=colors.HexColor("#475569")
+        )
+        cell_style = ParagraphStyle(
+            "CellDE", parent=styles["Normal"], fontSize=7.5, leading=9
+        )
+        header_style = ParagraphStyle(
+            "HeadDE", parent=styles["Normal"], fontSize=8, leading=10, textColor=colors.white
+        )
+
+        rows = self._to_dicts(companies)
+        story = [
+            Paragraph("Scraping Ergebnisse", title_style),
+            Spacer(1, 6),
+            Paragraph(
+                f"Ergebnisse: {len(rows)}  |  Stand: exportiert am heutigen Tag",
+                meta_style,
+            ),
+            Spacer(1, 10),
+        ]
+
+        data = [[Paragraph(h, header_style) for h in (
+            "Firma", "Kategorie", "Telefon", "E-Mail", "Adresse", "PLZ", "Stadt", "Website"
+        )]]
+        for r in rows:
+            data.append([
+                Paragraph(r["name"], cell_style),
+                Paragraph(r["category"], cell_style),
+                Paragraph(r["phone"], cell_style),
+                Paragraph(r["email"], cell_style),
+                Paragraph(f"{r['street']} {r['house_number']}".strip(), cell_style),
+                Paragraph(r["postal_code"], cell_style),
+                Paragraph(r["city"], cell_style),
+                Paragraph(r["website"], cell_style),
+            ])
+
+        table = Table(data, repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#3b82f6")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5f9")]),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(table)
+
+        doc.build(story)
+        buf.seek(0)
+        logger.info("PDF export done", count=len(companies))
+        return StreamingResponse(
+            buf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=scraping_ergebnisse.pdf"},
+        )
+
 
 export_service = ExportService()
-
-_PDF_TEMPLATE = """<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  body { font-family: 'Liberation Sans', Arial, sans-serif; font-size: 11px; margin: 24px; color: #1e293b; }
-  h1 { color: #1e3a8a; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; }
-  .meta { color: #475569; margin-bottom: 16px; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
-  th { background: #3b82f6; color: #fff; }
-  tr:nth-child(even) { background: #f1f5f9; }
-</style>
-</head>
-<body>
-  <h1>Scraping Ergebnisse</h1>
-  <p class="meta">
-    Datum: {{ date }} &nbsp;|&nbsp; Städte: {{ cities }} &nbsp;|&nbsp; Kategorien: {{ categories }} &nbsp;|&nbsp; Ergebnisse: {{ count }}
-  </p>
-  <table>
-    <thead>
-      <tr>
-        <th>Firma</th><th>Kategorie</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th>
-        <th>PLZ</th><th>Stadt</th><th>Website</th><th>Quelle</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in companies %}
-      <tr>
-        <td>{{ c.name }}</td>
-        <td>{{ c.category }}</td>
-        <td>{{ c.phone }}</td>
-        <td>{{ c.email }}</td>
-        <td>{{ c.street }} {{ c.house_number }}</td>
-        <td>{{ c.postal_code }}</td>
-        <td>{{ c.city }}</td>
-        <td>{{ c.website }}</td>
-        <td>{{ c.source }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</body>
-</html>
-"""

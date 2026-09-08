@@ -1,8 +1,29 @@
-"""Shared Camoufox browser management with context pooling and lifecycle control."""
+"""Shared Camoufox browser management with context pooling and lifecycle control.
+
+On Vercel Functions the filesystem is read-only except `/tmp`. Camoufox stores
+its browser in a user cache dir (`XDG_CACHE_HOME/camoufox`). We point
+`XDG_CACHE_HOME` at a writable temp dir and, on first use, copy the browser from
+the bundled read-only location (downloaded at build time via `camoufox fetch`)
+into `/tmp` so the browser can run.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
+from pathlib import Path
+
+# Must be set before importing camoufox internals so the data dir resolves to /tmp.
+if os.environ.get("VERCEL"):
+    _bundle_cache = os.path.join(os.getcwd(), ".camoufox_cache")
+    os.environ.setdefault("XDG_CACHE_HOME", "/tmp/camoufox")
+    _cache_root = Path(os.environ["XDG_CACHE_HOME"])
+    if not (_cache_root / "camoufox").exists() and Path(_bundle_cache).exists():
+        try:
+            shutil.copytree(_bundle_cache, _cache_root, dirs_exist_ok=True)
+        except Exception:
+            pass
 
 from camoufox.async_api import AsyncCamoufox
 
@@ -27,7 +48,7 @@ class BrowserManager:
                 self._session = AsyncCamoufox(
                     headless=settings.CAMOUFOX_HEADLESS,
                     humanize=settings.CAMOUFOX_HUMANIZE,
-                    os="windows",
+                    os="linux" if os.environ.get("VERCEL") else "windows",
                 )
                 self._browser = await self._session.__aenter__()
 

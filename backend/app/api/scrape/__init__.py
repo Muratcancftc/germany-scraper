@@ -1,23 +1,37 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+import asyncio
 
-from app.core.catalog import CATEGORIES, CATEGORY_GROUPS, CITIES
+from fastapi import APIRouter, Body, HTTPException
+from fastapi.responses import StreamingResponse
+
+from app.core.catalog import CATEGORIES, CATEGORY_GROUPS, CITIES, category_by_id, city_by_id
 from app.core.schemas import (
     CategoryResponse,
     CityResponse,
-    CompanyResponse,
     CreateJobRequest,
     DashboardStats,
     ScrapeEventResponse,
-    ScrapeJobResponse,
 )
 from app.core.store.job_store import job_store
-from app.services.event.event_service import event_service
+from app.scraper.scraper_manager import scraping_manager
+from app.services.event.event_service import event_service, subscribe, unsubscribe
 from app.services.export.export_service import export_service
-from app.services.job.job_service import job_service
 
 router = APIRouter(prefix="/api", tags=["scrape"])
+
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse(event: dict) -> str:
+    import json
+
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
 
 # --- cities & categories (from static in-memory catalog) ------------------
 @router.get("/cities", response_model=list[CityResponse])
@@ -45,102 +59,81 @@ async def get_categories():
     ]
 
 
-# --- jobs ---------------------------------------------------------------
-@router.post("/scrape/jobs", response_model=ScrapeJobResponse, status_code=201)
+# --- jobs: run inline and stream SSE events ---------------------------------
+@router.post("/scrape/jobs")
 async def create_job(request: CreateJobRequest):
-    job_id = await job_service.create_and_start(
-        request.city_ids,
-        request.category_ids,
-        max_results=request.max_results or 0,
-        max_concurrent_pages=request.max_concurrent_pages,
+    """Start a scraping job and stream its events as SSE.
+
+    The job runs synchronously inside this single request (Vercel Functions are
+    stateless, so there is no background worker to poll). The frontend reads the
+    `text/event-stream` response and renders results live.
+    """
+    city_pairs: list[tuple[int, str]] = []
+    for cid in request.city_ids:
+        city = city_by_id(cid)
+        if not city:
+            raise HTTPException(404, f"City {cid} not found")
+        city_pairs.append((city.id, city.name))
+
+    cat_info: list[tuple[int, str, list[str], list[str]]] = []
+    for cid in request.category_ids:
+        cat = category_by_id(cid)
+        if not cat:
+            raise HTTPException(404, f"Category {cid} not found")
+        cat_info.append((cat.id, cat.name, cat.search_terms, cat.keywords))
+
+    job = await job_store.create_job(len(city_pairs), len(cat_info))
+    job_id = job.id
+
+    q = subscribe(job_id)
+    task = asyncio.create_task(
+        scraping_manager.run_job(
+            job_id,
+            city_pairs,
+            cat_info,
+            max_results=request.max_results or 0,
+        )
     )
-    return ScrapeJobResponse.model_validate(await job_store.job_dict(job_id))
 
+    async def event_stream():
+        try:
+            yield _sse({"event_type": "job_started", "job_id": job_id})
+            while True:
+                event = await q.get()
+                yield _sse(event)
+                if event["event_type"] in ("job_completed", "job_failed", "job_cancelled"):
+                    break
+        finally:
+            if not task.done():
+                task.cancel()
+            unsubscribe(job_id, q)
+            event_service.clear(job_id)
 
-@router.get("/scrape/jobs", response_model=list[ScrapeJobResponse])
-async def get_jobs():
-    return [ScrapeJobResponse.model_validate(d) for d in await job_store.list_job_dicts()]
-
-
-@router.get("/scrape/jobs/{job_id}", response_model=ScrapeJobResponse)
-async def get_job(job_id: int):
-    data = await job_store.job_dict(job_id)
-    if not data:
-        raise HTTPException(404, "Job not found")
-    return ScrapeJobResponse.model_validate(data)
-
-
-@router.post("/scrape/jobs/{job_id}/cancel")
-async def cancel_job(job_id: int):
-    cancelled = await job_service.cancel(job_id)
-    if not cancelled:
-        data = await job_store.job_dict(job_id)
-        if data and data["status"] not in ("completed", "failed", "cancelled"):
-            await job_store.update(job_id, status="cancelled")
-            return {"status": "cancelled"}
-        raise HTTPException(404, "Active job not found")
-    return {"status": "cancelled"}
-
-
-@router.get("/scrape/jobs/{job_id}/companies", response_model=list[CompanyResponse])
-async def get_job_companies(
-    job_id: int,
-    has_email: bool = Query(False),
-    has_phone: bool = Query(False),
-    q: str = Query("", max_length=200),
-):
-    data = await job_store.job_dict(job_id)
-    if not data:
-        raise HTTPException(404, "Job not found")
-    records = await job_store.results(job_id)
-    if has_email:
-        records = [r for r in records if r.get("email")]
-    if has_phone:
-        records = [r for r in records if r.get("phone")]
-    if q:
-        needle = q.lower()
-        records = [
-            r
-            for r in records
-            if needle in (r.get("name") or "").lower()
-            or needle in (r.get("city") or "").lower()
-            or needle in (r.get("category") or "").lower()
-        ]
-    return [CompanyResponse.model_validate(r) for r in records]
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.get("/scrape/jobs/{job_id}/events", response_model=list[ScrapeEventResponse])
 async def get_job_events(job_id: int):
-    data = await job_store.job_dict(job_id)
-    if not data:
-        raise HTTPException(404, "Job not found")
     return [ScrapeEventResponse.model_validate(e) for e in event_service.get_events(job_id)]
 
 
-# --- export -------------------------------------------------------------
-@router.post("/scrape/jobs/{job_id}/export/excel")
-async def export_excel(job_id: int):
+@router.get("/scrape/jobs/{job_id}", response_model=dict)
+async def get_job(job_id: int):
     data = await job_store.job_dict(job_id)
     if not data:
         raise HTTPException(404, "Job not found")
-    companies = await job_store.results(job_id)
-    file_url = export_service.export_excel(job_id, companies)
-    return {"status": "exported", "file_url": file_url, "count": len(companies)}
+    return data
 
 
-@router.post("/scrape/jobs/{job_id}/export/pdf")
-async def export_pdf(job_id: int):
-    data = await job_store.job_dict(job_id)
-    if not data:
-        raise HTTPException(404, "Job not found")
-    companies = await job_store.results(job_id)
-    file_url = export_service.export_pdf(job_id, companies, data)
-    return {"status": "exported", "file_url": file_url, "count": len(companies)}
+# --- export (stateless: companies come in the request body) -----------------
+@router.post("/scrape/export/excel")
+async def export_excel(companies: list[dict] = Body(..., embed=True)):
+    return export_service.export_excel(companies)
 
 
-@router.get("/exports/{filename}")
-async def get_export(filename: str):
-    return await export_service.serve(filename)
+@router.post("/scrape/export/pdf")
+async def export_pdf(companies: list[dict] = Body(..., embed=True)):
+    return export_service.export_pdf(companies)
 
 
 # --- dashboard ----------------------------------------------------------

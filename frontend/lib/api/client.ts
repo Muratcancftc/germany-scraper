@@ -37,21 +37,6 @@ export interface Company {
   website_verified: boolean;
 }
 
-export interface ScrapeJob {
-  id: number;
-  status: string;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  city_count: number;
-  category_count: number;
-  total_found: number;
-  total_added: number;
-  total_duplicates: number;
-  total_merged: number;
-  total_failed: number;
-}
-
 export interface ScrapeEvent {
   id: number;
   job_id: number;
@@ -62,6 +47,7 @@ export interface ScrapeEvent {
   company_name: string | null;
   message: string | null;
   progress: number;
+  payload?: { company?: Partial<Company> };
 }
 
 export interface DashboardStats {
@@ -85,53 +71,94 @@ export async function apiRequest<T = any>(path: string, options: RequestInit = {
   return response.json();
 }
 
-export function wsUrl(jobId: number | string): string {
-  const ws = API_URL.replace(/^http/, "ws");
-  return `${ws}/ws/jobs/${jobId}`;
+/**
+ * Start a scraping job and stream its SSE events.
+ * Vercel Functions are stateless, so the job runs inside this one request.
+ * Returns an async generator of parsed event objects.
+ */
+export async function* streamJob(data: {
+  city_ids: number[];
+  category_ids: number[];
+  max_results?: number;
+}): AsyncGenerator<ScrapeEvent> {
+  const response = await fetch(`${API_URL}/api/scrape/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok || !response.body) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as any).detail || `Request failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let sepIndex: number;
+      while ((sepIndex = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, sepIndex);
+        buffer = buffer.slice(sepIndex + 2);
+        const dataLine = frame
+          .split("\n")
+          .find((l) => l.startsWith("data: "));
+        if (dataLine) {
+          try {
+            const event = JSON.parse(dataLine.slice(6));
+            yield event as ScrapeEvent;
+          } catch {
+            // skip malformed frames
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
-export function downloadUrl(path: string): string {
-  return `${API_URL}${path}`;
+export function downloadBlobUrl(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function exportExcel(companies: Partial<Company>[]): Promise<void> {
+  const response = await fetch(`${API_URL}/api/scrape/export/excel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ companies }),
+  });
+  if (!response.ok) throw new Error("Export fehlgeschlagen");
+  const blob = await response.blob();
+  downloadBlobUrl(blob, "scraping_ergebnisse.xlsx");
+}
+
+export async function exportPdf(companies: Partial<Company>[]): Promise<void> {
+  const response = await fetch(`${API_URL}/api/scrape/export/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ companies }),
+  });
+  if (!response.ok) throw new Error("Export fehlgeschlagen");
+  const blob = await response.blob();
+  downloadBlobUrl(blob, "scraping_ergebnisse.pdf");
 }
 
 export const getCities = () => apiRequest<City[]>("/api/cities");
 export const getCategories = () => apiRequest<Category[]>("/api/categories");
 export const getDashboardStats = () => apiRequest<DashboardStats>("/api/dashboard/stats");
-
-export const createJob = (data: {
-  city_ids: number[];
-  category_ids: number[];
-  max_results?: number;
-}) => apiRequest<ScrapeJob>("/api/scrape/jobs", { method: "POST", body: JSON.stringify(data) });
-
-export const getJobs = () => apiRequest<ScrapeJob[]>("/api/scrape/jobs");
-export const getJob = (id: number) => apiRequest<ScrapeJob>(`/api/scrape/jobs/${id}`);
-export const cancelJob = (id: number) => apiRequest(`/api/scrape/jobs/${id}/cancel`, { method: "POST" });
-
-export const getJobCompanies = (
-  jobId: number,
-  filters?: { hasEmail?: boolean; hasPhone?: boolean; q?: string }
-) => {
-  const params = new URLSearchParams();
-  if (filters?.hasEmail) params.set("has_email", "true");
-  if (filters?.hasPhone) params.set("has_phone", "true");
-  if (filters?.q) params.set("q", filters.q);
-  const qs = params.toString();
-  return apiRequest<Company[]>(`/api/scrape/jobs/${jobId}/companies${qs ? `?${qs}` : ""}`);
-};
-
-export const getJobEvents = (jobId: number) => apiRequest<ScrapeEvent[]>(`/api/scrape/jobs/${jobId}/events`);
-
-export const exportExcel = (jobId: number) =>
-  apiRequest<{ status: string; file_url: string; count: number }>(
-    `/api/scrape/jobs/${jobId}/export/excel`,
-    { method: "POST" }
-  );
-export const exportPdf = (jobId: number) =>
-  apiRequest<{ status: string; file_url: string; count: number }>(
-    `/api/scrape/jobs/${jobId}/export/pdf`,
-    { method: "POST" }
-  );
 
 export const login = (email: string, password: string) =>
   apiRequest<{ access_token: string; token_type: string }>("/api/auth/login", {

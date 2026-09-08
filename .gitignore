@@ -26,6 +26,7 @@ backend/.env
 backend/exports/*.xlsx
 backend/exports/*.pdf
 backend/exports/*
+.camoufox_cache/
 
 # OS / editor
 .DS_Store

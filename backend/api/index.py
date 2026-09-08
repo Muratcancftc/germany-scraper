@@ -1,11 +1,15 @@
 """Vercel serverless entrypoint for the FastAPI backend.
 
-Note: Vercel serverless functions are stateless and short-lived. The scraping
-pipeline (Camoufox + long-running jobs + WebSocket) requires a persistent
-process and CANNOT run here. This entrypoint serves the static API surface
-(cities, categories, auth, job metadata, exports) so the panel UI works.
+Runs on Vercel Pro + Fluid Compute. maxDuration is set to 30 minutes so a
+scraping job can run inside a single request and stream its events back over
+SSE. The Camoufox browser is downloaded at build time (build.py) into
+.camoufox_cache and copied to /tmp at runtime by browser_manager.
 
-Run the full backend with:  uvicorn app.main:app --host 0.0.0.0 --port 8000
+Locally, run the full backend with:  uvicorn app.main:app --host 0.0.0.0 --port 8000
 """
 
-from app.main import app
+import os
+
+# Vercel sets this in production. Browser data dir must be writable -> /tmp.
+os.environ.setdefault("VERCEL", "1" if os.environ.get("VERCEL_ENV") else "")
+

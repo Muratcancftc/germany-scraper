@@ -1,26 +1,37 @@
-"""Realtime event service: keeps an in-memory event log per job and broadcasts
-over WebSocket. No database is used."""
+"""Realtime event service: per-job asyncio queues consumed by SSE streams.
+
+On Vercel Functions every request runs in an isolated invocation, so events are
+delivered to whichever SSE stream is subscribed to a job inside the same request
+that runs the job. A per-job queue (asyncio.Queue) is created by the SSE endpoint
+and fed by this service; the stream generator drains it. No database is used.
+"""
+
+from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from datetime import datetime
 
-from app.core.logging.logger import logger
+# job_id -> list of subscriber queues
+_subscribers: dict[int, list[asyncio.Queue]] = {}
+_subscribers_lock = asyncio.Lock()
 
-# Pluggable async broadcaster (set by the websocket router to avoid circular imports)
-Broadcaster = Callable[[int, dict], Awaitable[None]]
-_broadcaster: Broadcaster | None = None
-_broadcaster_lock = asyncio.Lock()
-
-
-def set_broadcaster(fn: Broadcaster) -> None:
-    global _broadcaster
-    _broadcaster = fn
-
-
-# In-memory event log per job (bounded to avoid unbounded growth).
 MAX_EVENTS_PER_JOB = 2000
 _job_events: dict[int, list[dict]] = {}
+
+
+def subscribe(job_id: int) -> asyncio.Queue:
+    """Register a queue for a job and return it. The SSE generator drains it."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=0)
+    _subscribers.setdefault(job_id, []).append(q)
+    return q
+
+
+def unsubscribe(job_id: int, q: asyncio.Queue) -> None:
+    subs = _subscribers.get(job_id)
+    if subs and q in subs:
+        subs.remove(q)
+        if not subs:
+            _subscribers.pop(job_id, None)
 
 
 def _log_event(job_id: int, event: dict) -> None:
@@ -28,10 +39,6 @@ def _log_event(job_id: int, event: dict) -> None:
     log.append(event)
     if len(log) > MAX_EVENTS_PER_JOB:
         del log[: len(log) - MAX_EVENTS_PER_JOB]
-
-
-def _clear_job(job_id: int) -> None:
-    _job_events.pop(job_id, None)
 
 
 class EventService:
@@ -60,18 +67,18 @@ class EventService:
         }
         _log_event(job_id, event)
 
-        if _broadcaster:
+        for q in _subscribers.get(job_id, []):
             try:
-                await _broadcaster(job_id, event)
-            except Exception as exc:
-                logger.debug("WS broadcast failed", error=str(exc))
+                q.put_nowait(event)
+            except Exception:
+                pass
 
     def get_events(self, job_id: int, limit: int = 500) -> list[dict]:
         events = _job_events.get(job_id, [])
         return events[-limit:]
 
     def clear(self, job_id: int) -> None:
-        _clear_job(job_id)
+        _job_events.pop(job_id, None)
 
 
 event_service = EventService()

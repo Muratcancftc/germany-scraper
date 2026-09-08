@@ -5,17 +5,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
 from app.api.scrape import router as scrape_router
-from app.api.scrape.websocket import broadcast_event
 from app.core.config import settings
 from app.core.logging.logger import logger
-from app.services.event.event_service import set_broadcaster
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s", settings.APP_NAME)
-    # Wire realtime event broadcasting through the WebSocket manager.
-    set_broadcaster(broadcast_event)
     yield
     logger.info("Shutting down %s", settings.APP_NAME)
 

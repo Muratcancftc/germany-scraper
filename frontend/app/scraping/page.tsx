@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
-import { createJob, getCategories, getCities, Category, City } from "@/lib/api/client";
+import { getCategories, getCities, Category, City } from "@/lib/api/client";
+import { useJobStream } from "@/hooks/useJobStream";
+import { LiveScrapePanel } from "@/components/scraping/LiveScrapePanel";
 
 function CitySelect({
   items,
@@ -137,12 +138,12 @@ function CategoryPicker({
 }
 
 export default function ScrapingPage() {
-  const router = useRouter();
   const [selectedCities, setSelectedCities] = useState<number[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
   const [maxResults, setMaxResults] = useState<string>("");
   const [advanced, setAdvanced] = useState(false);
   const [error, setError] = useState("");
+  const { state: stream, start: startStream, reset: resetStream } = useJobStream();
 
   const { data: cities = [] as City[] } = useQuery({ queryKey: ["cities"], queryFn: getCities });
   const { data: categories = [] as Category[] } = useQuery({
@@ -151,20 +152,35 @@ export default function ScrapingPage() {
   });
 
   const canStart = selectedCities.length > 0 && selectedCategories.length > 0;
+  const started = stream.status !== "idle";
 
   const handleStart = async () => {
     setError("");
-    try {
-      const job = await createJob({
-        city_ids: selectedCities,
-        category_ids: selectedCategories,
-        max_results: maxResults ? Number(maxResults) : undefined,
-      });
-      router.push(`/scraping/${job.id}`);
-    } catch (e: any) {
-      setError(e.message || "Fehler beim Starten");
-    }
+    await startStream({
+      city_ids: selectedCities,
+      category_ids: selectedCategories,
+      max_results: maxResults ? Number(maxResults) : undefined,
+    });
   };
+
+  if (started) {
+    return (
+      <div className="max-w-7xl mx-auto">
+        <LiveScrapePanel state={stream} />
+        <div className="mt-6">
+          <button
+            onClick={() => {
+              resetStream();
+              setError("");
+            }}
+            className="text-blue-600 hover:underline text-sm"
+          >
+            Neuen Scrape starten
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto">

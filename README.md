@@ -92,13 +92,14 @@ npm run dev
 ## Realtime Scraping Flow
 
 1. User selects cities + categories, clicks **"Scraping starten"**.
-2. `POST /api/scrape/jobs` creates an in-memory job and enqueues it.
+2. Frontend opens a single `POST /api/scrape/jobs` request that returns a
+   `text/event-stream` (SSE). The job runs **inside that one request**.
 3. `ScrapingManager` loops over each city × category combination:
    - source `search()` → company URLs
    - for each URL (bounded concurrency): `extract_company()` → normalize → validate → dedupe/merge → store in memory
-   - emits a WebSocket event for every step (search, found, saved, duplicate, merged, error).
-4. The panel renders the live activity log, progress bar, and a results table that grows in realtime.
-5. On completion, **"Excel herunterladen"** and **"PDF herunterladen"** produce exports from in-memory results.
+   - emits an SSE event for every step (search, found, saved, duplicate, merged, error).
+4. The panel renders the live activity log and a results table that grows in realtime from the SSE stream.
+5. On completion, **"Excel herunterladen"** and **"PDF herunterladen"** POST the collected results back and download the generated file.
 
 Duplicates are detected per job by: normalized website → normalized phone → email → normalized name + city.
 Missing fields on a matched company are filled in instead of creating a new row.
@@ -166,28 +167,70 @@ class MySource(BaseSource):
 Then register it: `registry.register(MySource())` in
 `backend/app/scraper/sources/__init__.py`.
 
-## Deploy
+## Deploy (Vercel Pro + Fluid Compute)
 
-- **Frontend** → Vercel: `https://germany-scraper.vercel.app`
-  - Set env var `NEXT_PUBLIC_API_URL` to the backend base URL.
-  - `cd frontend && vercel deploy --prod`
-- **Backend (API surface)** → Vercel: `https://germany-scraper-api.vercel.app`
-  - `backend/api/index.py` is the Vercel serverless entrypoint; `backend/vercel.json` configures it.
-  - Only the static endpoints work there (cities, categories, auth, job metadata, dashboard). WebSocket and exports-on-demand may not persist across invocations.
-- **Full scraping backend (Camoufox + WebSocket + long-running jobs)** → a real server:
-  ```bash
-  cd backend
-  python3.12 -m venv .venv && source .venv/bin/activate
-  pip install -r requirements.txt
-  python -m camoufox fetch
-  uvicorn app.main:app --host 0.0.0.0 --port 8000
-  ```
-  Then set the frontend's `NEXT_PUBLIC_API_URL` to this server's URL.
+The backend is a single FastAPI app deployed as a Vercel Function on **Vercel Pro**
+with **Fluid Compute** enabled and `maxDuration` set to 30 minutes (1800s). Because
+Vercel Functions are stateless, each scraping job runs **inside a single request**
+and streams its events back over **SSE** (`text/event-stream`) instead of WebSocket.
+The frontend reads the stream with `fetch` + `ReadableStream`.
 
-> **Important:** Camoufox browser scraping and live WebSockets require a persistent
-> process. They **cannot** run inside Vercel serverless functions. Run the backend
-> on the Veridyen server (or any VPS / your machine) for real scraping; Vercel hosts
-> the panel UI and the static API.
+- **Frontend** → `https://germany-scraper.vercel.app`
+- **Backend API** → `https://germany-scraper-api.vercel.app`
+
+### Deployment
+
+Backend (`backend/`):
+1. `vercel.json` sets `fluid: true` and `maxDuration: 1800` on `api/index.py`.
+2. The build step (`build.py`, wired via `[tool.vercel.scripts].build`) runs
+   `python -m camoufox fetch` with `XDG_CACHE_HOME=./.camoufox_cache`, so the
+   ~300 MB browser is downloaded during the build and bundled into the function
+   (requires **Large Functions** — set `VERCEL_SUPPORT_LARGE_FUNCTIONS=1` in the
+   project env).
+3. At runtime, `browser_manager.py` copies the bundled browser from
+   `.camoufox_cache` into `/tmp` (the only writable location on Vercel Functions)
+   and points `XDG_CACHE_HOME` there before launching Camoufox headless.
+
+```bash
+cd backend
+vercel link --yes --project germany-scraper-api
+vercel env add VERCEL_SUPPORT_LARGE_FUNCTIONS 1
+vercel deploy --prod --yes
+```
+
+Frontend (`frontend/`):
+```bash
+cd frontend
+vercel link --yes --project germany-scraper
+vercel env add NEXT_PUBLIC_API_URL https://germany-scraper-api.vercel.app
+vercel deploy --prod --yes
+```
+
+### Local development
+
+Backend:
+```bash
+cd backend
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python -m camoufox fetch
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Frontend:
+```bash
+cd frontend
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:8000
+npm install
+npm run dev
+```
+
+Default login: `admin@example.com` / `admin123` (seeded in memory on first use).
+
+> **Realtime model:** results are streamed live over SSE while the job runs inside
+> its own request. There is no persistent job history — refresh loses results
+> (accepted by design). Export is stateless: the frontend posts the collected
+> companies back to `/api/scrape/export/{excel,pdf}` and downloads the file.
 
 ## Deliberately NOT included
 
