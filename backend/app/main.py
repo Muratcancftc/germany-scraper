@@ -44,5 +44,11 @@ async def root():
     return {
         "service": "germany-scraper",
         "message": "Backend API çalışıyor. Panel: frontend (npm run dev) — API dokümanı: /docs",
-        "endpoints": ["/api/cities", "/api/categories", "/api/auth/login", "/api/scrape/jobs", "/docs"],
+        "endpoints": [
+            "/api/cities",
+            "/api/categories",
+            "/api/auth/login",
+            "/api/scrape/jobs",
+            "/docs",
+        ],
     }
