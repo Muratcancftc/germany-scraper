@@ -33,3 +33,6 @@ backend/exports/*
 .idea/
 .vscode/
 *.log
+
+# Vercel
+.vercel/
