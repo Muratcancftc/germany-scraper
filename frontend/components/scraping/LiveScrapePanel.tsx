@@ -94,7 +94,7 @@ export function LiveScrapePanel({ state }: { state: JobStreamState }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {done && (
+          {(done || running) && companies.length > 0 && (
             <>
               <button onClick={() => handleExport("excel")} disabled={exporting !== null} className="btn-secondary">
                 <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
