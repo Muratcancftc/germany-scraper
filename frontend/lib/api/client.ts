@@ -164,7 +164,7 @@ export async function exportExcel(companies: Partial<Company>[]): Promise<void> 
 export async function exportPdf(companies: Partial<Company>[]): Promise<void> {
   const response = await fetch(`${API_URL}/api/scrape/export/pdf`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ companies }),
   });
   if (!response.ok) throw new Error("Export fehlgeschlagen");
