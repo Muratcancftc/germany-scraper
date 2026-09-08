@@ -165,7 +165,7 @@ export default function ScrapingPage() {
   const [maxResults, setMaxResults] = useState<string>("");
   const [advanced, setAdvanced] = useState(false);
   const [error, setError] = useState("");
-  const { state: stream, start: startStream, reset: resetStream } = useJobStream();
+  const { state: stream, start: startStream, stop: stopStream, reset: resetStream } = useJobStream();
 
   const { data: cities = [] as City[] } = useQuery({ queryKey: ["cities"], queryFn: getCities });
   const { data: categories = [] as Category[] } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
@@ -185,7 +185,7 @@ export default function ScrapingPage() {
   if (started) {
     return (
       <div className="space-y-4">
-        <LiveScrapePanel state={stream} />
+        <LiveScrapePanel state={stream} onStop={stopStream} />
         <button
           onClick={() => {
             resetStream();
@@ -264,6 +264,12 @@ export default function ScrapingPage() {
               onChange={(e) => setMaxResults(e.target.value)}
               className="input-field"
             />
+            <p className="mt-1.5 text-xs text-slate-500">
+              Begrenzt die Anzahl der zu verarbeitenden Firmen je Kombination aus
+              Stadt und Kategorie. <span className="text-slate-300">0 = unbegrenzt</span>{" "}
+              (Standard). Bei großen Städten empfohlen, um die Laufzeit im Rahmen
+              zu halten.
+            </p>
           </div>
         )}
       </section>

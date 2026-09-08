@@ -24,6 +24,7 @@ export default function DashboardPage() {
       label: "Unternehmen gesamt",
       value: stats?.total_companies ?? 0,
       icon: Building2,
+      href: "/jobs",
       gradient: "from-indigo-500/20 to-indigo-500/5",
       iconBg: "from-indigo-500 to-indigo-600",
       glow: "shadow-indigo-500/30",
@@ -33,6 +34,7 @@ export default function DashboardPage() {
       label: "Heute gefunden",
       value: stats?.today_found ?? 0,
       icon: TrendingUp,
+      href: "/jobs",
       gradient: "from-emerald-500/20 to-emerald-500/5",
       iconBg: "from-emerald-500 to-emerald-600",
       glow: "shadow-emerald-500/30",
@@ -42,6 +44,7 @@ export default function DashboardPage() {
       label: "Aktive Scrapes",
       value: stats?.active_scrapes ?? 0,
       icon: Activity,
+      href: "/scraping",
       gradient: "from-amber-500/20 to-amber-500/5",
       iconBg: "from-amber-500 to-amber-600",
       glow: "shadow-amber-500/30",
@@ -51,6 +54,7 @@ export default function DashboardPage() {
       label: "Erfolgsrate",
       value: `${stats?.success_rate ?? 0}%`,
       icon: CheckCircle2,
+      href: "/jobs",
       gradient: "from-violet-500/20 to-violet-500/5",
       iconBg: "from-violet-500 to-purple-600",
       glow: "shadow-violet-500/30",
@@ -79,9 +83,10 @@ export default function DashboardPage() {
         {cards.map((card) => {
           const Icon = card.icon;
           return (
-            <div
+            <Link
               key={card.label}
-              className={`card relative overflow-hidden bg-gradient-to-br ${card.gradient} p-5`}
+              href={card.href}
+              className={`card group relative overflow-hidden bg-gradient-to-br ${card.gradient} p-5 transition-transform duration-200 hover:-translate-y-0.5`}
             >
               <div className="flex items-start justify-between">
                 <div>
@@ -89,13 +94,16 @@ export default function DashboardPage() {
                   <p className="mt-2 text-3xl font-bold text-white">{card.value}</p>
                 </div>
                 <div
-                  className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br ${card.iconBg} shadow-lg ${card.glow}`}
+                  className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br ${card.iconBg} shadow-lg ${card.glow} transition-transform group-hover:scale-110`}
                 >
                   <Icon className={`h-5 w-5 ${card.text}`} />
                 </div>
               </div>
               <div className="pointer-events-none absolute -bottom-10 -right-10 h-32 w-32 rounded-full bg-white/[0.03]" />
-            </div>
+              <span className="absolute bottom-3 right-4 text-xs font-medium text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
+                Öffnen →
+              </span>
+            </Link>
           );
         })}
       </div>

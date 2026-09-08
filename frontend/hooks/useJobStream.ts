@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Company, ScrapeEvent, streamJob } from "@/lib/api/client";
+import { upsertJob } from "@/lib/jobStore";
 
 export interface JobStreamState {
   jobId: number | null;
@@ -42,17 +43,43 @@ export function useJobStream() {
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
+    abortRef.current = null;
     setState(initialState);
+  }, []);
+
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setState((prev) => {
+      const next = { ...prev, status: "cancelled" as const, current: "Scraping abgebrochen" };
+      if (next.jobId) {
+        upsertJob({
+          jobId: next.jobId,
+          status: "cancelled",
+          companies: next.companies,
+          events: next.events,
+          counts: next.counts,
+          current: "Abgebrochen",
+          completedAt: new Date().toISOString(),
+        });
+      }
+      return next;
+    });
   }, []);
 
   const start = useCallback(
     async (config: { city_ids: number[]; category_ids: number[]; max_results?: number }) => {
       abortRef.current?.abort();
+      abortRef.current = null;
       setState(initialState);
       setState((s) => ({ ...s, status: "running" }));
 
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       try {
-        for await (const event of streamJob(config)) {
+        for await (const event of streamJob(config, controller.signal)) {
+          if (controller.signal.aborted) break;
           setState((prev) => {
             const next: JobStreamState = {
               ...prev,
@@ -107,19 +134,41 @@ export function useJobStream() {
             }
 
             if (event.message) next.current = event.message;
+
+            // Keep the shared store in sync so the Ergebnisse page shows results
+            // even after leaving the scraping page.
+            if (next.jobId) {
+              const storedStatus: "running" | "completed" | "failed" | "cancelled" =
+                next.status === "idle" ? "running" : next.status;
+              upsertJob({
+                jobId: next.jobId,
+                status: storedStatus,
+                companies: next.companies,
+                events: next.events,
+                counts: next.counts,
+                current: next.current,
+                completedAt:
+                  storedStatus === "completed" || storedStatus === "failed" || storedStatus === "cancelled"
+                    ? new Date().toISOString()
+                    : undefined,
+              });
+            }
             return next;
           });
         }
       } catch (e: any) {
+        if (controller.signal.aborted) return;
         setState((s) => ({
           ...s,
           status: "failed",
           error: e.message || "Scraping fehlgeschlagen",
         }));
+      } finally {
+        abortRef.current = null;
       }
     },
     []
   );
 
-  return { state, start, reset };
+  return { state, start, stop, reset };
 }

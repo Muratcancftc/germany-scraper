@@ -17,6 +17,7 @@ import {
   Mail,
   Phone,
   Globe,
+  Square,
 } from "lucide-react";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -42,7 +43,13 @@ function StatCard({ label, value, icon, gradient, glow }: { label: string; value
   );
 }
 
-export function LiveScrapePanel({ state }: { state: JobStreamState }) {
+export function LiveScrapePanel({
+  state,
+  onStop,
+}: {
+  state: JobStreamState;
+  onStop?: () => void;
+}) {
   const [hasEmail, setHasEmail] = useState(false);
   const [hasPhone, setHasPhone] = useState(false);
   const [query, setQuery] = useState("");
@@ -94,6 +101,12 @@ export function LiveScrapePanel({ state }: { state: JobStreamState }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {running && onStop && (
+            <button onClick={onStop} className="btn-danger">
+              <Square className="h-3.5 w-3.5" />
+              Stoppen
+            </button>
+          )}
           {(done || running) && companies.length > 0 && (
             <>
               <button onClick={() => handleExport("excel")} disabled={exporting !== null} className="btn-secondary">

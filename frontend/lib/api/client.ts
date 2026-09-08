@@ -88,15 +88,19 @@ export async function apiRequest<T = any>(path: string, options: RequestInit = {
  * Vercel Functions are stateless, so the job runs inside this one request.
  * Returns an async generator of parsed event objects.
  */
-export async function* streamJob(data: {
-  city_ids: number[];
-  category_ids: number[];
-  max_results?: number;
-}): AsyncGenerator<ScrapeEvent> {
+export async function* streamJob(
+  data: {
+    city_ids: number[];
+    category_ids: number[];
+    max_results?: number;
+  },
+  signal?: AbortSignal
+): AsyncGenerator<ScrapeEvent> {
   const response = await fetch(`${API_URL}/api/scrape/jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(data),
+    signal,
   });
   if (!response.ok || !response.body) {
     const body = await response.json().catch(() => ({}));
