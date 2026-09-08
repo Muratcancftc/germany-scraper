@@ -37,3 +37,12 @@ app.include_router(auth_router)
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "germany-scraper"}
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return {
+        "service": "germany-scraper",
+        "message": "Backend API çalışıyor. Panel: frontend (npm run dev) — API dokümanı: /docs",
+        "endpoints": ["/api/cities", "/api/categories", "/api/auth/login", "/api/scrape/jobs", "/docs"],
+    }

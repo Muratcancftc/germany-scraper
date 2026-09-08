@@ -5,16 +5,32 @@ import { useQuery } from "@tanstack/react-query";
 import { getCategories, getCities, Category, City } from "@/lib/api/client";
 import { useJobStream } from "@/hooks/useJobStream";
 import { LiveScrapePanel } from "@/components/scraping/LiveScrapePanel";
+import {
+  MapPin,
+  FolderTree,
+  ChevronDown,
+  ChevronUp,
+  Radar,
+  Search,
+  Check,
+} from "lucide-react";
 
-function CitySelect({
-  items,
-  selected,
-  onToggle,
-}: {
-  items: City[];
-  selected: number[];
-  onToggle: (id: number) => void;
-}) {
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative">
+      <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="input-field pl-10"
+      />
+    </div>
+  );
+}
+
+function CitySelect({ items, selected, onToggle }: { items: City[]; selected: number[]; onToggle: (id: number) => void }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -23,43 +39,50 @@ function CitySelect({
   }, [items, query]);
 
   return (
-    <div className="flex flex-col gap-2">
-      <label className="text-sm font-semibold text-gray-700">Städte</label>
-      <input
-        type="text"
-        placeholder="Suchen..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-      />
-      <div className="border border-gray-200 rounded-lg max-h-72 overflow-y-auto">
-        {filtered.length === 0 && <p className="p-4 text-sm text-gray-400">Keine Ergebnisse</p>}
-        {filtered.map((item) => (
-          <label key={item.id} className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-gray-50">
-            <input
-              type="checkbox"
-              checked={selected.includes(item.id)}
-              onChange={() => onToggle(item.id)}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600"
-            />
-            <span className="text-sm">{item.name}</span>
-          </label>
-        ))}
+    <div className="flex flex-col gap-3">
+      <SearchBox value={query} onChange={setQuery} placeholder="Stadt suchen..." />
+      <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+        {filtered.length === 0 && (
+          <p className="py-6 text-center text-sm text-slate-500">Keine Städte gefunden</p>
+        )}
+        {filtered.map((item) => {
+          const isSel = selected.includes(item.id);
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onToggle(item.id)}
+              className={`group flex w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm transition-all duration-200 ${
+                isSel
+                  ? "border-indigo-400/40 bg-indigo-500/10 text-indigo-100 shadow-[0_0_20px_rgba(99,102,241,0.15)]"
+                  : "border-white/[0.06] bg-white/[0.02] text-slate-300 hover:border-white/15 hover:bg-white/[0.05]"
+              }`}
+            >
+              <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all ${
+                  isSel
+                    ? "border-indigo-400 bg-gradient-to-br from-indigo-500 to-purple-500 text-white"
+                    : "border-slate-600 bg-transparent group-hover:border-slate-400"
+                }`}
+              >
+                {isSel && <Check className="h-3.5 w-3.5" />}
+              </span>
+              <span className="flex items-center gap-2">
+                <MapPin className={`h-3.5 w-3.5 ${isSel ? "text-indigo-300" : "text-slate-500"}`} />
+                {item.name}
+              </span>
+            </button>
+          );
+        })}
       </div>
-      <p className="text-xs text-gray-500">{selected.length} ausgewählt</p>
+      <p className="text-xs font-medium text-slate-400">
+        {selected.length} {selected.length === 1 ? "Stadt ausgewählt" : "Städte ausgewählt"}
+      </p>
     </div>
   );
 }
 
-function CategoryPicker({
-  categories,
-  selected,
-  onToggle,
-}: {
-  categories: Category[];
-  selected: number[];
-  onToggle: (id: number) => void;
-}) {
+function CategoryPicker({ categories, selected, onToggle }: { categories: Category[]; selected: number[]; onToggle: (id: number) => void }) {
   const groups = useMemo(() => {
     const map = new Map<string, Category[]>();
     for (const c of categories) {
@@ -70,69 +93,68 @@ function CategoryPicker({
     return Array.from(map.entries());
   }, [categories]);
 
-  const groupIds = (items: Category[]) => items.map((c) => c.id);
-  const allGroupSelected = (items: Category[]) =>
-    items.length > 0 && items.every((c) => selected.includes(c.id));
-
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-semibold text-gray-700">Kategorien</label>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => categories.forEach((c) => !selected.includes(c.id) && onToggle(c.id))}
-            className="text-xs text-blue-600 hover:underline"
-          >
-            Alle auswählen
-          </button>
-          <button
-            type="button"
-            onClick={() => categories.forEach((c) => selected.includes(c.id) && onToggle(c.id))}
-            className="text-xs text-gray-500 hover:underline"
-          >
-            Keine
-          </button>
-        </div>
+        <span className="text-sm font-semibold text-slate-200">Kategorien</span>
+        <button
+          type="button"
+          onClick={() => categories.forEach((c) => !selected.includes(c.id) && onToggle(c.id))}
+          className="text-xs font-medium text-indigo-400 transition-colors hover:text-indigo-300"
+        >
+          Alle auswählen
+        </button>
       </div>
 
-      <div className="border border-gray-200 rounded-lg divide-y">
+      <div className="space-y-3">
         {groups.map(([group, items]) => {
-          const allSel = allGroupSelected(items);
+          const groupSel = items.filter((c) => selected.includes(c.id)).length;
           return (
-            <div key={group} className="p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-gray-800">{group}</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    allSel
-                      ? items.forEach((c) => onToggle(c.id))
-                      : items.forEach((c) => !selected.includes(c.id) && onToggle(c.id))
-                  }
-                  className="text-xs text-blue-600 hover:underline"
-                >
-                  {allSel ? "Alle abwählen" : "Alle auswählen"}
-                </button>
+            <div key={group} className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <FolderTree className="h-4 w-4 text-violet-400" />
+                  <span className="text-sm font-semibold text-slate-200">{group}</span>
+                </div>
+                <span className="badge bg-white/[0.06] text-slate-300">
+                  {groupSel}/{items.length}
+                </span>
               </div>
-              <div className="grid gap-1">
-                {items.map((c) => (
-                  <label key={c.id} className="flex items-center gap-3 px-2 py-1.5 cursor-pointer hover:bg-gray-50 rounded">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(c.id)}
-                      onChange={() => onToggle(c.id)}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600"
-                    />
-                    <span className="text-sm">{c.name}</span>
-                  </label>
-                ))}
+              <div className="space-y-1 border-t border-white/[0.06] p-3">
+                {items.map((c) => {
+                  const isSel = selected.includes(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => onToggle(c.id)}
+                      className={`group flex w-full items-start gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-all duration-200 ${
+                        isSel
+                          ? "border-violet-400/40 bg-violet-500/10 text-violet-100 shadow-[0_0_20px_rgba(139,92,246,0.15)]"
+                          : "border-transparent text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-all ${
+                          isSel
+                            ? "border-violet-400 bg-gradient-to-br from-violet-500 to-purple-500 text-white"
+                            : "border-slate-600 bg-transparent group-hover:border-slate-400"
+                        }`}
+                      >
+                        {isSel && <Check className="h-3 w-3" />}
+                      </span>
+                      {c.name}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           );
         })}
       </div>
-      <p className="text-xs text-gray-500">{selected.length} ausgewählt</p>
+      <p className="text-xs font-medium text-slate-400">
+        {selected.length} {selected.length === 1 ? "Kategorie ausgewählt" : "Kategorien ausgewählt"}
+      </p>
     </div>
   );
 }
@@ -146,10 +168,7 @@ export default function ScrapingPage() {
   const { state: stream, start: startStream, reset: resetStream } = useJobStream();
 
   const { data: cities = [] as City[] } = useQuery({ queryKey: ["cities"], queryFn: getCities });
-  const { data: categories = [] as Category[] } = useQuery({
-    queryKey: ["categories"],
-    queryFn: getCategories,
-  });
+  const { data: categories = [] as Category[] } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
 
   const canStart = selectedCities.length > 0 && selectedCategories.length > 0;
   const started = stream.status !== "idle";
@@ -165,62 +184,76 @@ export default function ScrapingPage() {
 
   if (started) {
     return (
-      <div className="max-w-7xl mx-auto">
+      <div className="space-y-4">
         <LiveScrapePanel state={stream} />
-        <div className="mt-6">
-          <button
-            onClick={() => {
-              resetStream();
-              setError("");
-            }}
-            className="text-blue-600 hover:underline text-sm"
-          >
-            Neuen Scrape starten
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            resetStream();
+            setError("");
+          }}
+          className="text-sm font-medium text-indigo-400 transition-colors hover:text-indigo-300"
+        >
+          ← Neuen Scrape starten
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">Neuen Scrape starten</h1>
-      <p className="text-gray-500 mb-6">
-        Wählen Sie Städte und Kategorien aus, um passende Unternehmen zu scrapen.
-      </p>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-white sm:text-3xl">Neuen Scrape starten</h1>
+        <p className="mt-1 text-sm text-slate-400">
+          Städte und Kategorien wählen — Ergebnisse erscheinen live.
+        </p>
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <CitySelect items={cities} selected={selectedCities} onToggle={(id) =>
-            setSelectedCities((prev) =>
-              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-            )
-          } />
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="stagger grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <section className="card p-5 sm:p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/20 to-indigo-500/5 ring-1 ring-inset ring-indigo-400/20">
+              <MapPin className="h-4 w-4 text-indigo-300" />
+            </div>
+            <h2 className="text-base font-semibold text-white">Städte</h2>
+          </div>
+          <CitySelect
+            items={cities}
+            selected={selectedCities}
+            onToggle={(id) =>
+              setSelectedCities((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+            }
+          />
+        </section>
+
+        <section className="card p-5 sm:p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-violet-500/5 ring-1 ring-inset ring-violet-400/20">
+              <FolderTree className="h-4 w-4 text-violet-300" />
+            </div>
+            <h2 className="text-base font-semibold text-white">Kategorien</h2>
+          </div>
           <CategoryPicker
             categories={categories}
             selected={selectedCategories}
             onToggle={(id) =>
-              setSelectedCategories((prev) =>
-                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-              )
+              setSelectedCategories((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
             }
           />
-        </div>
+        </section>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
+      <section className="card p-5">
         <button
           type="button"
           onClick={() => setAdvanced((v) => !v)}
-          className="text-sm font-medium text-gray-600 hover:text-gray-900"
+          className="flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-slate-200"
         >
-          {advanced ? "▲" : "▼"} Erweiterte Einstellungen
+          Erweiterte Einstellungen
+          {advanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
         {advanced && (
           <div className="mt-4 max-w-md">
-            <label className="text-sm font-semibold text-gray-700">
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">
               Maximale Ergebnisse pro Stadt/Kategorie
             </label>
             <input
@@ -229,24 +262,25 @@ export default function ScrapingPage() {
               placeholder="0 = unbegrenzt"
               value={maxResults}
               onChange={(e) => setMaxResults(e.target.value)}
-              className="mt-1 w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              className="input-field"
             />
           </div>
         )}
-      </div>
+      </section>
 
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {error}
+        </div>
+      )}
 
-      <div className="mt-6 flex items-center gap-3">
-        <button
-          onClick={handleStart}
-          disabled={!canStart}
-          className="bg-blue-600 text-white px-8 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
+      <div className="flex flex-wrap items-center gap-4">
+        <button onClick={handleStart} disabled={!canStart} className="btn-primary px-8 py-3">
+          <Radar className="h-4 w-4" />
           Scraping starten
         </button>
         {!canStart && (
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-slate-500">
             Bitte mindestens eine Stadt und eine Kategorie auswählen
           </span>
         )}

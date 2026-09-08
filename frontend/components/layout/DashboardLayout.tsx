@@ -4,6 +4,7 @@ import { useEffect, useState, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { getAuthToken } from "@/lib/api/client";
 import Sidebar from "@/components/common/Sidebar";
+import MobileNav from "@/components/common/MobileNav";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -18,13 +19,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }, [router]);
 
   if (!checked) {
-    return <div className="min-h-screen bg-gray-50" />;
+    return <div className="min-h-screen bg-[#07070b]" />;
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 p-8 overflow-auto">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <MobileNav />
+        <main className="flex-1 overflow-auto px-4 py-6 sm:px-8 sm:py-8">
+          <div className="mx-auto w-full max-w-7xl animate-fade-in-up">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }

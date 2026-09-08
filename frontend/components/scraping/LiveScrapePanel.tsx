@@ -3,6 +3,21 @@
 import { useState } from "react";
 import { Company, exportExcel, exportPdf } from "@/lib/api/client";
 import { JobStreamState } from "@/hooks/useJobStream";
+import {
+  FileSpreadsheet,
+  FileText,
+  Search,
+  Building2,
+  Sparkles,
+  Copy,
+  AlertTriangle,
+  Loader2,
+  CheckCircle2,
+  List,
+  Mail,
+  Phone,
+  Globe,
+} from "lucide-react";
 
 const STATUS_LABEL: Record<string, string> = {
   running: "Läuft",
@@ -11,27 +26,18 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "Abgebrochen",
 };
 
-export function StatusBadge({ status }: { status: string }) {
-  const color =
-    status === "completed"
-      ? "bg-green-100 text-green-700"
-      : status === "running"
-      ? "bg-blue-100 text-blue-700"
-      : status === "failed" || status === "cancelled"
-      ? "bg-red-100 text-red-700"
-      : "bg-gray-100 text-gray-600";
+function StatCard({ label, value, icon, gradient, glow }: { label: string; value: number; icon: React.ReactNode; gradient: string; glow: string }) {
   return (
-    <span className={`px-3 py-1 rounded-full text-sm font-medium ${color}`}>
-      {STATUS_LABEL[status] || status}
-    </span>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="text-2xl font-bold">{value}</p>
+    <div className="card relative overflow-hidden p-4">
+      <div className="flex items-center gap-3">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${gradient} shadow-lg ${glow}`}>
+          {icon}
+        </div>
+        <div>
+          <p className="text-xs font-medium text-slate-400">{label}</p>
+          <p className="text-2xl font-bold text-white">{value}</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -46,7 +52,10 @@ export function LiveScrapePanel({ state }: { state: JobStreamState }) {
   let filtered = companies;
   if (hasEmail) filtered = filtered.filter((c) => c.email);
   if (hasPhone) filtered = filtered.filter((c) => c.phone);
-  if (query) filtered = filtered.filter((c) => (c.name || "").toLowerCase().includes(query.toLowerCase()));
+  if (query)
+    filtered = filtered.filter((c) =>
+      (c.name || "").toLowerCase().includes(query.toLowerCase())
+    );
 
   const running = state.status === "running";
   const done = state.status === "completed";
@@ -64,135 +73,224 @@ export function LiveScrapePanel({ state }: { state: JobStreamState }) {
   };
 
   return (
-    <div className="mt-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h2 className="text-2xl font-bold">
-            Scrape Job {state.jobId ? `#${state.jobId}` : ""}
-          </h2>
-          <p className="text-sm text-gray-500">
-            {running ? "Scraping läuft..." : STATUS_LABEL[state.status] || ""}
-          </p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 blur-md opacity-50" />
+            <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg">
+              <Building2 className="h-5 w-5 text-white" />
+            </div>
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-white sm:text-2xl">
+              Scrape Job {state.jobId ? `#${state.jobId}` : ""}
+            </h1>
+            <p className="text-sm text-slate-400">
+              {running ? "Scraping läuft..." : STATUS_LABEL[state.status] || ""}
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2 items-center">
+
+        <div className="flex flex-wrap items-center gap-2">
           {done && (
             <>
-              <button
-                onClick={() => handleExport("excel")}
-                disabled={exporting !== null}
-                className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50"
-              >
-                {exporting === "excel" ? "Erstellt..." : "Excel herunterladen"}
+              <button onClick={() => handleExport("excel")} disabled={exporting !== null} className="btn-secondary">
+                <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+                {exporting === "excel" ? "Erstellt..." : "Excel"}
               </button>
-              <button
-                onClick={() => handleExport("pdf")}
-                disabled={exporting !== null}
-                className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50"
-              >
-                {exporting === "pdf" ? "Erstellt..." : "PDF herunterladen"}
+              <button onClick={() => handleExport("pdf")} disabled={exporting !== null} className="btn-secondary">
+                <FileText className="h-4 w-4 text-red-400" />
+                {exporting === "pdf" ? "Erstellt..." : "PDF"}
               </button>
             </>
           )}
-          <StatusBadge status={state.status} />
+          <span
+            className={`badge ${
+              state.status === "completed"
+                ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/20"
+                : state.status === "running"
+                ? "bg-blue-500/15 text-blue-300 ring-1 ring-inset ring-blue-400/20"
+                : state.status === "failed" || state.status === "cancelled"
+                ? "bg-red-500/15 text-red-300 ring-1 ring-inset ring-red-400/20"
+                : "bg-white/[0.06] text-slate-300 ring-1 ring-inset ring-white/10"
+            }`}
+          >
+            {running && <span className="live-dot h-1.5 w-1.5 rounded-full bg-blue-400" />}
+            {STATUS_LABEL[state.status] || state.status}
+          </span>
         </div>
       </div>
 
       {state.error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {state.error}
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-        <StatCard label="Gefunden" value={state.counts.found} />
-        <StatCard label="Neu" value={state.counts.added} />
-        <StatCard label="Duplikate" value={state.counts.duplicates + state.counts.merged} />
-        <StatCard label="Fehler" value={state.counts.failed} />
-        <StatCard label="Gesamt" value={companies.length} />
+      {/* Stats */}
+      <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        <StatCard label="Gefunden" value={state.counts.found} icon={<List className="h-4 w-4 text-blue-300" />} gradient="from-blue-500/20 to-blue-500/5" glow="shadow-blue-500/20" />
+        <StatCard label="Neu" value={state.counts.added} icon={<Sparkles className="h-4 w-4 text-indigo-300" />} gradient="from-indigo-500/20 to-indigo-500/5" glow="shadow-indigo-500/20" />
+        <StatCard label="Duplikate" value={state.counts.duplicates + state.counts.merged} icon={<Copy className="h-4 w-4 text-amber-300" />} gradient="from-amber-500/20 to-amber-500/5" glow="shadow-amber-500/20" />
+        <StatCard label="Fehler" value={state.counts.failed} icon={<AlertTriangle className="h-4 w-4 text-red-300" />} gradient="from-red-500/20 to-red-500/5" glow="shadow-red-500/20" />
+        <StatCard label="Gesamt" value={companies.length} icon={<Building2 className="h-4 w-4 text-emerald-300" />} gradient="from-emerald-500/20 to-emerald-500/5" glow="shadow-emerald-500/20" />
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-        <p className="text-sm text-gray-600 mb-2">
-          {state.current || "Starte..."}
-        </p>
-        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+      {/* Progress */}
+      <div className="card p-5">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="flex items-center gap-2 text-sm font-medium text-slate-300">
+            {running ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
+                {state.current || "Starte..."}
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                {state.current || STATUS_LABEL[state.status] || "Fertig"}
+              </>
+            )}
+          </p>
+          {running && (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-400">
+              <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Live-Stream
+            </span>
+          )}
+        </div>
+        <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
           <div
-            className={`h-3 rounded-full transition-all ${running ? "bg-blue-600" : "bg-green-600"}`}
-            style={{ width: `${running ? 100 : 100}%` }}
+            className={`h-full rounded-full transition-all duration-500 ${
+              running
+                ? "bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500"
+                : "bg-gradient-to-r from-emerald-500 to-emerald-400"
+            }`}
+            style={{ width: "100%" }}
           />
         </div>
-        {running && <p className="text-xs text-gray-400 mt-1">Live-Daten werden gestreamt...</p>}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <h3 className="text-lg font-semibold mb-3">Live-Aktivitäten</h3>
-          <div className="h-96 overflow-y-auto font-mono text-xs bg-gray-900 text-green-400 rounded-lg p-3 space-y-1">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        {/* Live log */}
+        <section className="card flex flex-col">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-4">
+            <span className="live-dot h-2 w-2 rounded-full bg-emerald-400" />
+            <h3 className="text-base font-semibold text-white">Live-Aktivitäten</h3>
+          </div>
+          <div className="max-h-[28rem] flex-1 space-y-1 overflow-y-auto p-4 font-mono text-xs">
             {state.events.length === 0 && (
-              <p className="text-gray-500">Noch keine Aktivitäten...</p>
+              <p className="py-8 text-center text-slate-500">Noch keine Aktivitäten...</p>
             )}
             {state.events.map((e, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-gray-500 shrink-0">
+              <div key={i} className="flex gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.04]">
+                <span className="shrink-0 text-slate-500">
                   {new Date(e.timestamp).toLocaleTimeString("de-DE")}
                 </span>
-                <span>{e.message || e.event_type}</span>
+                <span className="text-slate-300">{e.message || e.event_type}</span>
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold">Resultate</h3>
-            <div className="flex gap-3">
-              <label className="flex items-center gap-1 text-xs text-gray-600">
-                <input type="checkbox" checked={hasEmail} onChange={(e) => setHasEmail(e.target.checked)} className="rounded" />
+        {/* Results */}
+        <section className="card flex flex-col">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
+            <h3 className="flex items-center gap-2 text-base font-semibold text-white">
+              <Building2 className="h-4 w-4 text-indigo-400" />
+              Resultate
+              <span className="badge bg-indigo-500/15 text-indigo-300 ring-1 ring-inset ring-indigo-400/20">
+                {companies.length}
+              </span>
+            </h3>
+            <div className="flex items-center gap-4">
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-400">
+                <input type="checkbox" checked={hasEmail} onChange={(e) => setHasEmail(e.target.checked)} className="h-3.5 w-3.5 rounded border-slate-600 bg-transparent text-indigo-500 focus:ring-indigo-500/50" />
                 nur mit E-Mail
               </label>
-              <label className="flex items-center gap-1 text-xs text-gray-600">
-                <input type="checkbox" checked={hasPhone} onChange={(e) => setHasPhone(e.target.checked)} className="rounded" />
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-400">
+                <input type="checkbox" checked={hasPhone} onChange={(e) => setHasPhone(e.target.checked)} className="h-3.5 w-3.5 rounded border-slate-600 bg-transparent text-indigo-500 focus:ring-indigo-500/50" />
                 nur mit Telefon
               </label>
             </div>
           </div>
-          <input
-            type="text"
-            placeholder="Suchen..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full mb-3 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-          />
-          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+
+          <div className="border-b border-white/[0.06] p-4">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Unternehmen suchen..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="input-field py-2 pl-10"
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-gray-50">
-                <tr className="border-b">
-                  <th className="text-left py-2 px-2">Firma</th>
-                  <th className="text-left py-2 px-2">Telefon</th>
-                  <th className="text-left py-2 px-2">E-Mail</th>
-                  <th className="text-left py-2 px-2">Adresse</th>
-                  <th className="text-left py-2 px-2">Website</th>
+              <thead className="sticky top-0 bg-[#0d0d14] text-left">
+                <tr className="text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-5 py-3 font-semibold">Firma</th>
+                  <th className="px-3 py-3 font-semibold">Telefon</th>
+                  <th className="px-3 py-3 font-semibold">E-Mail</th>
+                  <th className="px-3 py-3 font-semibold">Adresse</th>
+                  <th className="px-5 py-3 font-semibold">Website</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-white/[0.05]">
                 {filtered.length === 0 && (
-                  <tr><td colSpan={5} className="py-6 text-center text-gray-400">Noch keine Ergebnisse</td></tr>
+                  <tr>
+                    <td colSpan={5} className="py-10 text-center text-slate-500">
+                      Noch keine Ergebnisse
+                    </td>
+                  </tr>
                 )}
                 {filtered.map((c, i) => (
-                  <tr key={i} className="border-b hover:bg-gray-50">
-                    <td className="py-2 px-2 font-medium">{c.name || "-"}</td>
-                    <td className="py-2 px-2">{c.phone || <span className="text-gray-300">Nicht gefunden</span>}</td>
-                    <td className="py-2 px-2">{c.email || <span className="text-gray-300">Nicht gefunden</span>}</td>
-                    <td className="py-2 px-2">
-                      {[c.street, c.house_number, c.postal_code, c.city].filter(Boolean).join(" ") || <span className="text-gray-300">Nicht gefunden</span>}
+                  <tr key={i} className="transition-colors hover:bg-indigo-500/[0.04]">
+                    <td className="px-5 py-3 font-medium text-white">{c.name || "-"}</td>
+                    <td className="px-3 py-3 text-slate-300">
+                      {c.phone ? (
+                        <span className="flex items-center gap-1.5">
+                          <Phone className="h-3 w-3 text-slate-500" />
+                          {c.phone}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
                     </td>
-                    <td className="py-2 px-2">{c.website ? <a href={c.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.website}</a> : <span className="text-gray-300">Nicht gefunden</span>}</td>
+                    <td className="px-3 py-3 text-slate-300">
+                      {c.email ? (
+                        <a href={`mailto:${c.email}`} className="flex items-center gap-1.5 text-indigo-300 hover:underline">
+                          <Mail className="h-3 w-3 text-slate-500" />
+                          {c.email}
+                        </a>
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-slate-300">
+                      {[c.street, c.house_number, c.postal_code, c.city].filter(Boolean).join(" ") || <span className="text-slate-600">—</span>}
+                    </td>
+                    <td className="px-5 py-3">
+                      {c.website ? (
+                        <a href={c.website} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-indigo-300 hover:underline">
+                          <Globe className="h-3 w-3 text-slate-500" />
+                          {c.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );
