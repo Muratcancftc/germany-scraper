@@ -82,6 +82,10 @@ class DirectorySource(BaseSource):
             if any(x in href for x in (".pdf", ".png", ".jpg", "javascript:", "#")):
                 continue
             url = urljoin(f"https://{self.host}", href)
+            # Only collect real company profile links (e.g. /gsbiz/<uuid>).
+            # Skip navigation/service/static pages.
+            if "/gsbiz/" not in url:
+                continue
             slug = url.rstrip("/").split("/")[-1].lower()
             if len(slug) > 2 and url not in seen:
                 seen.add(url)
