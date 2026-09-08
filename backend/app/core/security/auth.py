@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import bcrypt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
@@ -41,10 +43,25 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(to_encode, settings.effective_secret_key, algorithm=settings.ALGORITHM)
 
 def verify_token(token: str) -> dict | None:
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return jwt.decode(token, settings.effective_secret_key, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
+
+
+_bearer = HTTPBearer(auto_error=False)
+
+
+def require_auth(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> dict:
+    """FastAPI dependency that requires a valid JWT. Returns the token payload."""
+    if credentials is None:
+        raise HTTPException(401, "Not authenticated")
+    payload = verify_token(credentials.credentials)
+    if not payload:
+        raise HTTPException(401, "Invalid or expired token")
+    return payload

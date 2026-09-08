@@ -57,11 +57,23 @@ export interface DashboardStats {
   success_rate: number;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Same-origin: frontend and backend live in the same Vercel deployment.
+// For local dev, NEXT_PUBLIC_API_URL can point at the local backend.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+export function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("token");
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export async function apiRequest<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     ...options,
   });
   if (!response.ok) {
@@ -83,7 +95,7 @@ export async function* streamJob(data: {
 }): AsyncGenerator<ScrapeEvent> {
   const response = await fetch(`${API_URL}/api/scrape/jobs`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(data),
   });
   if (!response.ok || !response.body) {
@@ -137,7 +149,7 @@ export function downloadBlobUrl(blob: Blob, filename: string): void {
 export async function exportExcel(companies: Partial<Company>[]): Promise<void> {
   const response = await fetch(`${API_URL}/api/scrape/export/excel`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ companies }),
   });
   if (!response.ok) throw new Error("Export fehlgeschlagen");
@@ -160,14 +172,8 @@ export const getCities = () => apiRequest<City[]>("/api/cities");
 export const getCategories = () => apiRequest<Category[]>("/api/categories");
 export const getDashboardStats = () => apiRequest<DashboardStats>("/api/dashboard/stats");
 
-export const login = (email: string, password: string) =>
+export const login = (username: string, password: string) =>
   apiRequest<{ access_token: string; token_type: string }>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
-
-export const register = (email: string, password: string) =>
-  apiRequest<{ access_token: string; token_type: string }>("/api/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ username, password }),
   });

@@ -1,14 +1,3 @@
-const config = {
-  async headers() {
-    return [
-      {
-        source: '/api/:path*',
-        headers: [
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-        ],
-      },
-    ];
-  },
-};
-
-module.exports = config;
+// Same-origin: frontend and backend share one Vercel deployment (Services).
+// No CORS headers needed — /api/* is routed to the backend service.
+module.exports = {};

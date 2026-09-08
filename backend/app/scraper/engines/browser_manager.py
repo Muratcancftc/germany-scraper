@@ -58,11 +58,58 @@ class BrowserManager:
         await self._ensure_browser()
         if self._context_pool:
             return self._context_pool.pop()
-        return await self._browser.new_context(
+        context = await self._browser.new_context(
             viewport={"width": 1366, "height": 900},
             locale="de-DE",
             timezone_id="Europe/Berlin",
         )
+        await self._install_blocking(context)
+        return context
+
+    @staticmethod
+    async def _install_blocking(context) -> None:
+        """Block heavy/tracking resources while keeping JavaScript enabled.
+
+        Images, media, fonts and analytics/tracking/advertisement requests are
+        aborted; the page's own JS and HTML/CSS still load so JS-rendered
+        content can be extracted.
+        """
+        blocked_resource_types = {"image", "media", "font"}
+        blocked_url_keywords = (
+            "analytics",
+            "tracking",
+            "telemetry",
+            "advert",
+            "ads",
+            "adserver",
+            "doubleclick",
+            "googletag",
+            "facebook",
+            "hotjar",
+            "mixpanel",
+            "segment",
+            "gtag",
+            "google-analytics",
+            "mc.yandex",
+            "sentry",
+            "metrics",
+            "beacon",
+            "pixel",
+        )
+
+        async def route_handler(route):
+            req = route.request
+            if req.resource_type in blocked_resource_types:
+                await route.abort()
+                return
+            url = req.url.lower()
+            if req.resource_type == "script" or req.resource_type == "other":
+                if any(k in url for k in blocked_url_keywords):
+                    await route.abort()
+                    return
+            await route.continue_()
+
+        await context.route("**/*", route_handler)
 
     def release_context(self, context):
         self._context_pool.append(context)

@@ -3,7 +3,7 @@ job/company state rather than any ORM row."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 class CityResponse(BaseModel):
@@ -83,12 +83,12 @@ class ScrapeEventResponse(BaseModel):
 
 
 class UserCreate(BaseModel):
-    email: EmailStr
+    username: str = Field(..., min_length=1)
     password: str = Field(..., min_length=6)
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    username: str = Field(..., min_length=1)
     password: str
 
 

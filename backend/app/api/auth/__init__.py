@@ -1,46 +1,35 @@
-"""In-memory auth. Users live in a process-local dict (no database). A default
-admin is seeded from settings on first use. Tokens are JWT (HS256)."""
+"""DB-less auth. A single admin account configured via environment variables
+(ADMIN_USERNAME / ADMIN_PASSWORD, with DEFAULT_USER_EMAIL/PASSWORD kept as
+backward-compatible aliases). Login issues a JWT (HS256) signed with AUTH_SECRET.
+No database, no user store — credentials never live in the source code."""
 
 from __future__ import annotations
+
+import secrets
 
 from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
-from app.core.schemas import TokenResponse, UserCreate, UserLogin
-from app.core.security.auth import create_access_token, hash_password, verify_password
+from app.core.schemas import TokenResponse, UserLogin
+from app.core.security.auth import create_access_token
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# Process-local user store: email -> password_hash
-_users: dict[str, str] = {}
-_seeded = False
 
-
-def _seed_default_user() -> None:
-    global _seeded
-    if _seeded:
-        return
-    _seeded = True
-    _users[settings.DEFAULT_USER_EMAIL] = hash_password(settings.DEFAULT_USER_PASSWORD)
-
-
-@router.post("/register", response_model=TokenResponse)
-async def register(user_data: UserCreate):
-    _seed_default_user()
-    email = user_data.email.lower()
-    if email in _users:
-        raise HTTPException(400, "Email already exists")
-    _users[email] = hash_password(user_data.password)
-    token = create_access_token({"user_id": email, "email": email})
-    return TokenResponse(access_token=token, token_type="bearer")
+def _valid_credentials(username: str, password: str) -> bool:
+    user_ok = secrets.compare_digest(username.strip().lower(), settings.ADMIN_USERNAME.lower())
+    email_ok = secrets.compare_digest(
+        username.strip().lower(), settings.DEFAULT_USER_EMAIL.lower()
+    )
+    pass_ok = secrets.compare_digest(password, settings.ADMIN_PASSWORD)
+    return (user_ok or email_ok) and pass_ok
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(user_data: UserLogin):
-    _seed_default_user()
-    email = user_data.email.lower()
-    stored_hash = _users.get(email)
-    if not stored_hash or not verify_password(user_data.password, stored_hash):
+    if not _valid_credentials(user_data.username, user_data.password):
         raise HTTPException(401, "Invalid credentials")
-    token = create_access_token({"user_id": email, "email": email})
+
+    identity = settings.DEFAULT_USER_EMAIL or f"{settings.ADMIN_USERNAME}@example.com"
+    token = create_access_token({"user_id": identity, "email": identity, "role": "admin"})
     return TokenResponse(access_token=token, token_type="bearer")

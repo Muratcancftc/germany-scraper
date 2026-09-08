@@ -167,44 +167,49 @@ class MySource(BaseSource):
 Then register it: `registry.register(MySource())` in
 `backend/app/scraper/sources/__init__.py`.
 
-## Deploy (Vercel Pro + Fluid Compute)
+## Deploy (single Vercel Pro deployment)
 
-The backend is a single FastAPI app deployed as a Vercel Function on **Vercel Pro**
-with **Fluid Compute** enabled and `maxDuration` set to 30 minutes (1800s). Because
-Vercel Functions are stateless, each scraping job runs **inside a single request**
-and streams its events back over **SSE** (`text/event-stream`) instead of WebSocket.
-The frontend reads the stream with `fetch` + `ReadableStream`.
+One Vercel project serves both frontend and backend on a single domain
+(`https://germany-scraper.vercel.app`) using **Vercel Services**:
 
-- **Frontend** → `https://germany-scraper.vercel.app`
-- **Backend API** → `https://germany-scraper-api.vercel.app`
+- `frontend/` → Next.js service (all page routes)
+- `backend/` → FastAPI service (`api.index:app`), reached via `/api/*`
+- Root `vercel.json` rewrites `/api/(.*)` to the backend service and `/(.*)` to the frontend.
+- **Fluid Compute** is enabled; the backend function has `maxDuration: 1800` (30 min).
+
+Because Functions are stateless, each scraping job runs **inside a single request**
+and streams events back over **SSE** (`text/event-stream`) — no WebSocket, no
+background worker, no cross-request polling. The frontend reads the stream with
+`fetch` + `ReadableStream`.
 
 ### Deployment
 
-Backend (`backend/`):
-1. `vercel.json` sets `fluid: true` and `maxDuration: 1800` on `api/index.py`.
-2. The build step (`build.py`, wired via `[tool.vercel.scripts].build`) runs
-   `python -m camoufox fetch` with `XDG_CACHE_HOME=./.camoufox_cache`, so the
-   ~300 MB browser is downloaded during the build and bundled into the function
-   (requires **Large Functions** — set `VERCEL_SUPPORT_LARGE_FUNCTIONS=1` in the
-   project env).
-3. At runtime, `browser_manager.py` copies the bundled browser from
-   `.camoufox_cache` into `/tmp` (the only writable location on Vercel Functions)
-   and points `XDG_CACHE_HOME` there before launching Camoufox headless.
-
 ```bash
-cd backend
-vercel link --yes --project germany-scraper-api
-vercel env add VERCEL_SUPPORT_LARGE_FUNCTIONS 1
-vercel deploy --prod --yes
-```
-
-Frontend (`frontend/`):
-```bash
-cd frontend
+# from repo root
 vercel link --yes --project germany-scraper
-vercel env add NEXT_PUBLIC_API_URL https://germany-scraper-api.vercel.app
+vercel env add ADMIN_USERNAME production
+vercel env add ADMIN_PASSWORD production
+vercel env add AUTH_SECRET production
+vercel env add VERCEL_SUPPORT_LARGE_FUNCTIONS production
 vercel deploy --prod --yes
 ```
+
+The build step (`backend/build.py`) runs `python -m camoufox fetch` with
+`XDG_CACHE_HOME=./.camoufox_cache`, so the ~600 MB browser is bundled into the
+backend function (requires **Large Functions** — set
+`VERCEL_SUPPORT_LARGE_FUNCTIONS=1`). At runtime the browser is **read** from the
+bundled cache (read-only filesystem) — nothing is copied to `/tmp`.
+
+### Scraping strategy (HTTP-first)
+
+1. `HttpEngine` fetches each URL over plain HTTP (httpx, retries, UA, redirects).
+2. If the page is a bot challenge, empty, or returns an error status, it falls
+   back to **Camoufox** (real browser).
+3. In the browser, JavaScript stays **enabled**, but images, video, fonts,
+   analytics and tracking/advertisement requests are **blocked** via request
+   interception — the page is rendered, not the media.
+4. A single browser is launched per invocation and reused via a context pool
+   (no per-company browser restart).
 
 ### Local development
 
@@ -225,7 +230,7 @@ npm install
 npm run dev
 ```
 
-Default login: `admin@example.com` / `admin123` (seeded in memory on first use).
+Default login: `admin` / `admin123` (from `ADMIN_USERNAME`/`ADMIN_PASSWORD` env).
 
 > **Realtime model:** results are streamed live over SSE while the job runs inside
 > its own request. There is no persistent job history — refresh loses results

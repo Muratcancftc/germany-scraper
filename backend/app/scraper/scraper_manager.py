@@ -18,6 +18,7 @@ from app.core.logging.logger import logger
 from app.core.store.job_store import CompanyRecord, job_store
 from app.scraper.deduplication.deduplicator import deduplicator
 from app.scraper.engines.camoufox_engine import camoufox_engine
+from app.scraper.engines.http_engine import http_engine
 from app.scraper.normalizers.pipeline import normalize_candidate
 from app.scraper.sources import iter_sources
 from app.scraper.validators.candidate_validator import candidate_validator
@@ -79,6 +80,7 @@ class ScrapingManager:
             logger.exception("Job failed", job_id=job_id)
             await self.fail_job(job_id, str(exc))
         finally:
+            await http_engine.close()
             await camoufox_engine.close()
 
     async def fail_job(self, job_id: int, error: str) -> None:
@@ -109,7 +111,7 @@ class ScrapingManager:
                 continue
             try:
                 urls = await source.search(
-                    city, category, search_terms, camoufox_engine, max_results
+                    city, category, search_terms, http_engine, max_results
                 )
                 for url in urls:
                     all_urls.append((source, url))
@@ -166,7 +168,7 @@ class ScrapingManager:
         )
         try:
             candidate = await source.extract_company(
-                url, camoufox_engine, city=city, category=category
+                url, http_engine, city=city, category=category
             )
         except Exception as exc:
             logger.warning("Extraction failed", url=url, error=str(exc))

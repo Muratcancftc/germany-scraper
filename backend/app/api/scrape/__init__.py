@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.core.catalog import CATEGORIES, CATEGORY_GROUPS, CITIES, category_by_id, city_by_id
@@ -13,6 +13,7 @@ from app.core.schemas import (
     DashboardStats,
     ScrapeEventResponse,
 )
+from app.core.security.auth import require_auth
 from app.core.store.job_store import job_store
 from app.scraper.scraper_manager import scraping_manager
 from app.services.event.event_service import event_service, subscribe, unsubscribe
@@ -61,7 +62,7 @@ async def get_categories():
 
 # --- jobs: run inline and stream SSE events ---------------------------------
 @router.post("/scrape/jobs")
-async def create_job(request: CreateJobRequest):
+async def create_job(request: CreateJobRequest, _: dict = Depends(require_auth)):
     """Start a scraping job and stream its events as SSE.
 
     The job runs synchronously inside this single request (Vercel Functions are
@@ -113,12 +114,12 @@ async def create_job(request: CreateJobRequest):
 
 
 @router.get("/scrape/jobs/{job_id}/events", response_model=list[ScrapeEventResponse])
-async def get_job_events(job_id: int):
+async def get_job_events(job_id: int, _: dict = Depends(require_auth)):
     return [ScrapeEventResponse.model_validate(e) for e in event_service.get_events(job_id)]
 
 
 @router.get("/scrape/jobs/{job_id}", response_model=dict)
-async def get_job(job_id: int):
+async def get_job(job_id: int, _: dict = Depends(require_auth)):
     data = await job_store.job_dict(job_id)
     if not data:
         raise HTTPException(404, "Job not found")
@@ -127,18 +128,24 @@ async def get_job(job_id: int):
 
 # --- export (stateless: companies come in the request body) -----------------
 @router.post("/scrape/export/excel")
-async def export_excel(companies: list[dict] = Body(..., embed=True)):
+async def export_excel(
+    companies: list[dict] = Body(..., embed=True),
+    _: dict = Depends(require_auth),
+):
     return export_service.export_excel(companies)
 
 
 @router.post("/scrape/export/pdf")
-async def export_pdf(companies: list[dict] = Body(..., embed=True)):
+async def export_pdf(
+    companies: list[dict] = Body(..., embed=True),
+    _: dict = Depends(require_auth),
+):
     return export_service.export_pdf(companies)
 
 
 # --- dashboard ----------------------------------------------------------
 @router.get("/dashboard/stats", response_model=DashboardStats)
-async def dashboard_stats():
+async def dashboard_stats(_: dict = Depends(require_auth)):
     jobs = await job_store.list_jobs()
     total_companies = sum(j.total_added for j in jobs)
     active_scrapes = sum(1 for j in jobs if j.status in ("queued", "starting", "running"))
