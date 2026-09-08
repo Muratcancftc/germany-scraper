@@ -48,7 +48,8 @@ class Settings(BaseSettings):
 
     EXPORT_DIR: str = "/tmp/exports"
 
-    # --- Supabase (optional persistence: dedup + history) ---
+    # --- Supabase (persistence: dedup + history) ---
+    SUPABASE_DATABASE_URL: str = ""
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
@@ -56,7 +57,7 @@ class Settings(BaseSettings):
 
     @property
     def supabase_enabled(self) -> bool:
-        return bool(self.SUPABASE_URL and self.SUPABASE_SERVICE_KEY)
+        return bool(self.SUPABASE_DATABASE_URL)
 
     @property
     def effective_secret_key(self) -> str:

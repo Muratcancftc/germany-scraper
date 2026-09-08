@@ -1,10 +1,11 @@
 "use client";
 
 import { useSyncExternalStore, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { Building2, ArrowRight, FileSpreadsheet, FileText, Search, Mail, Phone, Globe, Loader2 } from "lucide-react";
+import { Building2, ArrowRight, FileSpreadsheet, FileText, Search, Mail, Phone, Globe, Loader2, Database } from "lucide-react";
 import { getJobs, subscribe, SavedJob } from "@/lib/jobStore";
-import { exportExcel, exportPdf } from "@/lib/api/client";
+import { exportExcel, exportPdf, getPersistedCompanies } from "@/lib/api/client";
 
 function statusBadge(status: string) {
   const cls =
@@ -29,6 +30,12 @@ export default function JobsPage() {
   const jobs = useSyncExternalStore(subscribe, getJobs);
   const [query, setQuery] = useState("");
   const [exporting, setExporting] = useState<null | { type: "excel" | "pdf"; jobId: number }>(null);
+
+  const { data: persisted = [] as any[], isLoading: persistedLoading } = useQuery({
+    queryKey: ["persisted-companies"],
+    queryFn: getPersistedCompanies,
+    retry: 1,
+  });
 
   const filtered = query
     ? jobs.filter((j) =>
@@ -63,7 +70,7 @@ export default function JobsPage() {
         </Link>
       </div>
 
-      {jobs.length === 0 ? (
+      {jobs.length === 0 && persisted.length === 0 ? (
         <div className="card overflow-hidden">
           <div className="flex flex-col items-center gap-4 px-6 py-14 text-center">
             <div className="relative">
@@ -87,6 +94,102 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="space-y-6">
+          {persisted.length > 0 && (
+            <section className="card overflow-hidden">
+              <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 ring-1 ring-inset ring-emerald-400/20">
+                    <Database className="h-4 w-4 text-emerald-300" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold text-white">Gespeicherte Firmen (Supabase)</h2>
+                    <p className="text-xs text-slate-500">
+                      Kalıcı olarak kayıtlı, tüm job'ların sonuçları · {persisted.length} Firmen
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        await exportExcel(persisted as any);
+                      } catch {
+                        alert("Export fehlgeschlagen");
+                      }
+                    }}
+                    className="btn-secondary py-1.5"
+                  >
+                    <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+                    Excel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await exportPdf(persisted as any);
+                      } catch {
+                        alert("Export fehlgeschlagen");
+                      }
+                    }}
+                    className="btn-secondary py-1.5"
+                  >
+                    <FileText className="h-4 w-4 text-red-400" />
+                    PDF
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-80 overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-[#0d0d14] text-left">
+                    <tr className="text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-5 py-3 font-semibold">Firma</th>
+                      <th className="px-3 py-3 font-semibold">Telefon</th>
+                      <th className="px-3 py-3 font-semibold">E-Mail</th>
+                      <th className="px-3 py-3 font-semibold">Adresse</th>
+                      <th className="px-5 py-3 font-semibold">Website</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.05]">
+                    {persisted.map((c, i) => (
+                      <tr key={i} className="transition-colors hover:bg-emerald-500/[0.04]">
+                        <td className="px-5 py-3 font-medium text-white">{c.name || "-"}</td>
+                        <td className="px-3 py-3 text-slate-300">
+                          {c.phone ? (
+                            <span className="flex items-center gap-1.5">
+                              <Phone className="h-3 w-3 text-slate-500" />
+                              {c.phone}
+                            </span>
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-slate-300">
+                          {c.email ? (
+                            <a href={`mailto:${c.email}`} className="text-indigo-300 hover:underline">
+                              {c.email}
+                            </a>
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-slate-300">
+                          {[c.street, c.house_number, c.postal_code, c.city].filter(Boolean).join(" ") || <span className="text-slate-600">—</span>}
+                        </td>
+                        <td className="px-5 py-3">
+                          {c.website ? (
+                            <a href={c.website} target="_blank" rel="noreferrer" className="text-indigo-300 hover:underline">
+                              {c.website.replace(/^https?:\/\//, "")}
+                            </a>
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
           {filtered.map((job) => (
             <section key={job.jobId} className="card overflow-hidden">
               {/* Job header */}
