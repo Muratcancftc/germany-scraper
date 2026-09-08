@@ -167,8 +167,16 @@ export default function ScrapingPage() {
   const [error, setError] = useState("");
   const { state: stream, start: startStream, stop: stopStream, reset: resetStream } = useJobStream();
 
-  const { data: cities = [] as City[] } = useQuery({ queryKey: ["cities"], queryFn: getCities });
-  const { data: categories = [] as Category[] } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
+  const { data: cities = [] as City[], isLoading: citiesLoading } = useQuery({
+    queryKey: ["cities"],
+    queryFn: getCities,
+    staleTime: Infinity,
+  });
+  const { data: categories = [] as Category[], isLoading: catsLoading } = useQuery({
+    queryKey: ["categories"],
+    queryFn: getCategories,
+    staleTime: Infinity,
+  });
 
   const canStart = selectedCities.length > 0 && selectedCategories.length > 0;
   const started = stream.status !== "idle";
@@ -216,13 +224,21 @@ export default function ScrapingPage() {
             </div>
             <h2 className="text-base font-semibold text-white">Städte</h2>
           </div>
-          <CitySelect
-            items={cities}
-            selected={selectedCities}
-            onToggle={(id) =>
-              setSelectedCities((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-            }
-          />
+          {citiesLoading ? (
+            <div className="space-y-2">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-11 animate-pulse rounded-xl bg-white/[0.04]" />
+              ))}
+            </div>
+          ) : (
+            <CitySelect
+              items={cities}
+              selected={selectedCities}
+              onToggle={(id) =>
+                setSelectedCities((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+              }
+            />
+          )}
         </section>
 
         <section className="card p-5 sm:p-6">
@@ -232,13 +248,21 @@ export default function ScrapingPage() {
             </div>
             <h2 className="text-base font-semibold text-white">Kategorien</h2>
           </div>
-          <CategoryPicker
-            categories={categories}
-            selected={selectedCategories}
-            onToggle={(id) =>
-              setSelectedCategories((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-            }
-          />
+          {catsLoading ? (
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-16 animate-pulse rounded-xl bg-white/[0.04]" />
+              ))}
+            </div>
+          ) : (
+            <CategoryPicker
+              categories={categories}
+              selected={selectedCategories}
+              onToggle={(id) =>
+                setSelectedCategories((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+              }
+            />
+          )}
         </section>
       </div>
 
