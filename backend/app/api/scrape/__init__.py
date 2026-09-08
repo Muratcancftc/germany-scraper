@@ -18,6 +18,7 @@ from app.core.store.job_store import job_store
 from app.scraper.scraper_manager import scraping_manager
 from app.services.event.event_service import event_service, subscribe, unsubscribe
 from app.services.export.export_service import export_service
+from app.services.persistence.supabase_store import supabase_store
 
 router = APIRouter(prefix="/api", tags=["scrape"])
 
@@ -126,6 +127,25 @@ async def get_job(job_id: int, _: dict = Depends(require_auth)):
     return data
 
 
+# --- persistent data (Supabase) ---------------------------------------------
+@router.get("/companies", response_model=list)
+async def get_companies(_: dict = Depends(require_auth)):
+    """Persisted companies across all jobs (deduped globally)."""
+    return await supabase_store.list_companies()
+
+
+@router.get("/jobs", response_model=list)
+async def get_persisted_jobs(_: dict = Depends(require_auth)):
+    """Persisted job history (survives reloads)."""
+    return await supabase_store.list_jobs()
+
+
+@router.get("/scrape/jobs/{job_id}/companies", response_model=list)
+async def get_job_companies_persisted(job_id: int, _: dict = Depends(require_auth)):
+    """Persisted companies belonging to a job."""
+    return await supabase_store.companies_for_job(job_id)
+
+
 # --- export (stateless: companies come in the request body) -----------------
 @router.post("/scrape/export/excel")
 async def export_excel(
@@ -146,6 +166,23 @@ async def export_pdf(
 # --- dashboard ----------------------------------------------------------
 @router.get("/dashboard/stats", response_model=DashboardStats)
 async def dashboard_stats(_: dict = Depends(require_auth)):
+    if supabase_store.enabled():
+        jobs = await supabase_store.list_jobs(limit=500)
+        companies = await supabase_store.list_companies(limit=1000)
+        total_companies = len(companies)
+        active_scrapes = sum(
+            1 for j in jobs if j.get("status") in ("queued", "starting", "running")
+        )
+        completed = sum(1 for j in jobs if j.get("status") == "completed")
+        total_jobs = len(jobs)
+        success_rate = round((completed / total_jobs * 100) if total_jobs else 0, 1)
+        return DashboardStats(
+            total_companies=total_companies,
+            today_found=total_companies,
+            active_scrapes=active_scrapes,
+            success_rate=success_rate,
+        )
+
     jobs = await job_store.list_jobs()
     total_companies = sum(j.total_added for j in jobs)
     active_scrapes = sum(1 for j in jobs if j.status in ("queued", "starting", "running"))

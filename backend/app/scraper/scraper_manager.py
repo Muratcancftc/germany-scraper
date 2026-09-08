@@ -24,6 +24,7 @@ from app.scraper.sources import iter_sources
 from app.scraper.validators.candidate_validator import candidate_validator
 from app.scraper.validators.category_validator import category_validator
 from app.services.event.event_service import event_service
+from app.services.persistence.supabase_store import supabase_store
 
 
 class ScrapingManager:
@@ -41,6 +42,7 @@ class ScrapingManager:
         await self._set_status(job_id, "starting")
         await event_service.emit(job_id, "job_started", "Scraping gestartet")
         await self._set_status(job_id, "running")
+        await self._persist_job(job_id)
 
         total_combos = len(cities) * len(categories)
         combo_idx = 0
@@ -72,13 +74,16 @@ class ScrapingManager:
             await event_service.emit(
                 job_id, "job_completed", "Scraping abgeschlossen", progress=100
             )
+            await self._persist_job(job_id)
         except asyncio.CancelledError:
             await self._set_status(job_id, "cancelled")
             await event_service.emit(job_id, "job_cancelled", "Scraping abgebrochen")
+            await self._persist_job(job_id)
             raise
         except Exception as exc:
             logger.exception("Job failed", job_id=job_id)
             await self.fail_job(job_id, str(exc))
+            await self._persist_job(job_id)
         finally:
             await http_engine.close()
             await camoufox_engine.close()
@@ -221,6 +226,22 @@ class ScrapingManager:
         if job is None:
             return
 
+        # Persistent dedup (cross-job): if this company already exists in
+        # Supabase, treat it as a duplicate regardless of the in-memory scope.
+        if supabase_store.enabled():
+            existing_db = await supabase_store.find_company(record)
+            if existing_db:
+                await self._update_counts(job_id, duplicates=1)
+                await event_service.emit(
+                    job_id,
+                    "company_duplicate",
+                    f"Bereits vorhanden: {record.name}",
+                    city=city,
+                    category=category,
+                    company_name=record.name,
+                )
+                return
+
         decision = deduplicator.find_duplicate(job, record)
         if decision.is_duplicate and decision.existing:
             merged = deduplicator.merge_into(decision.existing, record)
@@ -259,8 +280,30 @@ class ScrapingManager:
             company_name=record.name,
             payload={"company": job_store._record_dict(record)},
         )
+        if supabase_store.enabled():
+            row = await supabase_store.save_company(record)
+            if row and row.get("id") is not None:
+                await supabase_store.link_company_to_job(job_id, row["id"])
 
     # --- helpers --------------------------------------------------------
+    async def _persist_job(self, job_id: int) -> None:
+        if not supabase_store.enabled():
+            return
+        job = await job_store.get(job_id)
+        if not job:
+            return
+        await supabase_store.save_job(
+            job_id,
+            status=job.status,
+            city_count=job.city_count,
+            category_count=job.category_count,
+            total_found=job.total_found,
+            total_added=job.total_added,
+            total_duplicates=job.total_duplicates,
+            total_merged=job.total_merged,
+            total_failed=job.total_failed,
+        )
+
     async def _set_status(self, job_id: int, status: str) -> None:
         now = datetime.utcnow().isoformat()
         fields: dict = {"status": status}

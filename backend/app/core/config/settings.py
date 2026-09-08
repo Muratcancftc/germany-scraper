@@ -48,7 +48,15 @@ class Settings(BaseSettings):
 
     EXPORT_DIR: str = "/tmp/exports"
 
+    # --- Supabase (optional persistence: dedup + history) ---
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @property
+    def supabase_enabled(self) -> bool:
+        return bool(self.SUPABASE_URL and self.SUPABASE_SERVICE_KEY)
 
     @property
     def effective_secret_key(self) -> str:

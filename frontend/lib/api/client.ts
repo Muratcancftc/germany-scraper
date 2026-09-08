@@ -176,6 +176,11 @@ export const getCities = () => apiRequest<City[]>("/api/cities");
 export const getCategories = () => apiRequest<Category[]>("/api/categories");
 export const getDashboardStats = () => apiRequest<DashboardStats>("/api/dashboard/stats");
 
+export const getPersistedJobs = () => apiRequest<any[]>("/api/jobs");
+export const getPersistedCompanies = () => apiRequest<any[]>("/api/companies");
+export const getJobCompanies = (jobId: number) =>
+  apiRequest<any[]>(`/api/scrape/jobs/${jobId}/companies`);
+
 export const login = (username: string, password: string) =>
   apiRequest<{ access_token: string; token_type: string }>("/api/auth/login", {
     method: "POST",
