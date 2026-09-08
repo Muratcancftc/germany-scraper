@@ -10,6 +10,7 @@ is already deduplicated).
 from __future__ import annotations
 
 import os
+import tempfile
 from datetime import datetime
 
 from fastapi import HTTPException
@@ -22,7 +23,11 @@ from app.core.logging.logger import logger
 
 class ExportService:
     def __init__(self):
-        self.export_dir = os.path.abspath(settings.EXPORT_DIR)
+        base = os.path.abspath(settings.EXPORT_DIR)
+        if os.access(base, os.W_OK):
+            self.export_dir = base
+        else:
+            self.export_dir = os.path.join(tempfile.gettempdir(), "scraper_exports")
         os.makedirs(self.export_dir, exist_ok=True)
 
     def _to_dicts(self, companies: list[dict]) -> list[dict]:

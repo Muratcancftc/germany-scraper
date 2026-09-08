@@ -166,6 +166,29 @@ class MySource(BaseSource):
 Then register it: `registry.register(MySource())` in
 `backend/app/scraper/sources/__init__.py`.
 
+## Deploy
+
+- **Frontend** → Vercel: `https://germany-scraper.vercel.app`
+  - Set env var `NEXT_PUBLIC_API_URL` to the backend base URL.
+  - `cd frontend && vercel deploy --prod`
+- **Backend (API surface)** → Vercel: `https://germany-scraper-api.vercel.app`
+  - `backend/api/index.py` is the Vercel serverless entrypoint; `backend/vercel.json` configures it.
+  - Only the static endpoints work there (cities, categories, auth, job metadata, dashboard). WebSocket and exports-on-demand may not persist across invocations.
+- **Full scraping backend (Camoufox + WebSocket + long-running jobs)** → a real server:
+  ```bash
+  cd backend
+  python3.12 -m venv .venv && source .venv/bin/activate
+  pip install -r requirements.txt
+  python -m camoufox fetch
+  uvicorn app.main:app --host 0.0.0.0 --port 8000
+  ```
+  Then set the frontend's `NEXT_PUBLIC_API_URL` to this server's URL.
+
+> **Important:** Camoufox browser scraping and live WebSockets require a persistent
+> process. They **cannot** run inside Vercel serverless functions. Run the backend
+> on the Veridyen server (or any VPS / your machine) for real scraping; Vercel hosts
+> the panel UI and the static API.
+
 ## Deliberately NOT included
 
 PostgreSQL, MySQL, MongoDB, Redis, Celery, RabbitMQ, Docker, Kubernetes,
