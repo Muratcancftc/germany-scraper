@@ -1,174 +1,23 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import { Company, ScrapeEvent, streamJob } from "@/lib/api/client";
-import { upsertJob } from "@/lib/jobStore";
+import { useSyncExternalStore } from "react";
+import {
+  subscribe,
+  getSnapshot,
+  start,
+  stop,
+  reset,
+  JobStreamState,
+} from "@/lib/scrapeStore";
 
-export interface JobStreamState {
-  jobId: number | null;
-  events: ScrapeEvent[];
-  companies: Partial<Company>[];
-  status: "idle" | "running" | "completed" | "failed" | "cancelled";
-  counts: {
-    found: number;
-    added: number;
-    duplicates: number;
-    merged: number;
-    failed: number;
-  };
-  current: string;
-  error: string;
-}
+export type { JobStreamState };
 
-function companyKey(c: Partial<Company>): string {
-  if (c.website) return `w:${c.website}`;
-  if (c.phone) return `p:${c.phone}`;
-  if (c.email) return `e:${c.email}`;
-  return `n:${c.name ?? ""}`;
-}
-
-const initialState: JobStreamState = {
-  jobId: null,
-  events: [],
-  companies: [],
-  status: "idle",
-  counts: { found: 0, added: 0, duplicates: 0, merged: 0, failed: 0 },
-  current: "",
-  error: "",
-};
-
+/**
+ * React hook over the global scrape store.
+ * The stream lives at module scope, so leaving the scraping page does not
+ * cancel it — returning to the page shows the live panel again.
+ */
 export function useJobStream() {
-  const [state, setState] = useState<JobStreamState>(initialState);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const reset = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setState(initialState);
-  }, []);
-
-  const stop = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setState((prev) => {
-      const next = { ...prev, status: "cancelled" as const, current: "Scraping abgebrochen" };
-      if (next.jobId) {
-        upsertJob({
-          jobId: next.jobId,
-          status: "cancelled",
-          companies: next.companies,
-          events: next.events,
-          counts: next.counts,
-          current: "Abgebrochen",
-          completedAt: new Date().toISOString(),
-        });
-      }
-      return next;
-    });
-  }, []);
-
-  const start = useCallback(
-    async (config: { city_ids: number[]; category_ids: number[]; max_results?: number }) => {
-      abortRef.current?.abort();
-      abortRef.current = null;
-      setState(initialState);
-      setState((s) => ({ ...s, status: "running" }));
-
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      try {
-        for await (const event of streamJob(config, controller.signal)) {
-          if (controller.signal.aborted) break;
-          setState((prev) => {
-            const next: JobStreamState = {
-              ...prev,
-              events: [...prev.events, event],
-              status: prev.status,
-            };
-
-            switch (event.event_type) {
-              case "job_started":
-                next.jobId = event.job_id;
-                break;
-              case "company_added":
-                if (event.payload?.company) {
-                  next.companies = [event.payload.company, ...prev.companies];
-                  next.counts.added += 1;
-                }
-                break;
-              case "company_merged":
-                if (event.payload?.company) {
-                  const key = companyKey(event.payload.company);
-                  const idx = prev.companies.findIndex((c) => companyKey(c) === key);
-                  if (idx === -1) next.companies = [event.payload.company, ...prev.companies];
-                  else {
-                    const updated = [...prev.companies];
-                    updated[idx] = { ...updated[idx], ...event.payload.company };
-                    next.companies = updated;
-                  }
-                  next.counts.merged += 1;
-                }
-                break;
-              case "company_duplicate":
-                next.counts.duplicates += 1;
-                break;
-              case "company_failed":
-                next.counts.failed += 1;
-                break;
-              case "job_completed":
-                next.status = "completed";
-                next.current = event.message || "Abgeschlossen";
-                break;
-              case "job_failed":
-                next.status = "failed";
-                next.error = event.message || "Fehlgeschlagen";
-                next.current = next.error;
-                break;
-              case "job_cancelled":
-                next.status = "cancelled";
-                break;
-              case "progress":
-                next.current = event.message || next.current;
-                break;
-            }
-
-            if (event.message) next.current = event.message;
-
-            // Keep the shared store in sync so the Ergebnisse page shows results
-            // even after leaving the scraping page.
-            if (next.jobId) {
-              const storedStatus: "running" | "completed" | "failed" | "cancelled" =
-                next.status === "idle" ? "running" : next.status;
-              upsertJob({
-                jobId: next.jobId,
-                status: storedStatus,
-                companies: next.companies,
-                events: next.events,
-                counts: next.counts,
-                current: next.current,
-                completedAt:
-                  storedStatus === "completed" || storedStatus === "failed" || storedStatus === "cancelled"
-                    ? new Date().toISOString()
-                    : undefined,
-              });
-            }
-            return next;
-          });
-        }
-      } catch (e: any) {
-        if (controller.signal.aborted) return;
-        setState((s) => ({
-          ...s,
-          status: "failed",
-          error: e.message || "Scraping fehlgeschlagen",
-        }));
-      } finally {
-        abortRef.current = null;
-      }
-    },
-    []
-  );
-
+  const state: JobStreamState = useSyncExternalStore(subscribe, getSnapshot);
   return { state, start, stop, reset };
 }
